@@ -1,0 +1,263 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Always-on Agent 机制调研</title><style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:860px;margin:0 auto;padding:16px;line-height:1.7;color:#222;font-size:16px}h1{font-size:1.5em}h2{border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:2em}.tw{overflow-x:auto}table{border-collapse:collapse;font-size:14px;min-width:600px}td,th{border:1px solid #ddd;padding:6px;vertical-align:top}th{background:#f5f5f5}code{background:#f3f3f3;padding:1px 4px;border-radius:3px;font-size:.9em;word-break:break-all}a{color:#0a58ca;word-break:break-all}.toc{background:#fafafa;border:1px solid #eee;padding:8px 16px;font-size:14px}</style></head><body><details class="toc" open><summary>目录</summary><div class="toc">
+<ul>
+<li><a href="#_1">一页摘要</a></li>
+<li><a href="#_2">对比表</a></li>
+<li><a href="#1-grok-bot">1. Grok Bot（主案例）</a><ul>
+<li><a href="#11-lee-robinson">1.1 Lee Robinson 是谁</a></li>
+<li><a href="#12-stanford-cs146s2026-10-08">1.2 讲座要点（Stanford CS146S，2026-10-08）</a></li>
+<li><a href="#13">1.3 官方文档补充</a></li>
+</ul>
+</li>
+<li><a href="#2-openai-dots2026-09-29-devday">2. OpenAI dots（2026-09-29 DevDay 发布）</a></li>
+<li><a href="#3-meta-muse2026-09-08">3. Meta Muse（2026-09-08 发布）</a></li>
+<li><a href="#4-raftbotiverse-slock">4. Raft（Botiverse，原名 Slock）</a></li>
+<li><a href="#5-deepseek-bot2026-10-07">5. DeepSeek Bot（2026-10-07）</a></li>
+<li><a href="#6">6. 开源与本地路线</a></li>
+<li><a href="#7">7. 其他相关产品与协议</a></li>
+<li><a href="#_3">待确认</a></li>
+</ul>
+</div>
+</details><h1 id="always-on-agent-grok-botraftdeepseek-bot">Always-on Agent 机制调研：Grok Bot、Raft、DeepSeek Bot 与同类产品</h1>
+<p>更新：2026-10-11（台北时间）。标注说明：【官方】=厂商文档/博客/仓库；【第三方】=媒体、社区或第三方站点。</p>
+<h2 id="_1">一页摘要</h2>
+<ul>
+<li><strong>形态已经收敛</strong>：Grok Bot、OpenAI dots、Meta Muse 三家 always-on agent 的共同骨架是「服务器上的 agent 循环 + 每个用户一台持久云电脑（VM/容器）+ 文件化记忆与 skills + 事件/定时唤醒 + 独立模型做风险审核」。差异主要在安全边界与渠道。</li>
+<li><strong>Grok Bot</strong>（Lee Robinson 10/8 Stanford CS146S 讲座）：空闲时什么都不跑；每用户一台 Firecracker VM，闲置几分钟后快照到磁盘、下次调工具再恢复；durable workflow 断点续跑；唯一的 SendToUser 工具让 agent 可以保持沉默；Auto-review 模型批风险动作，15 秒无人回应即拦截；记忆分 Profile / Log / Notes / 搜索四层；把 cache miss 当 bug。</li>
+<li><strong>Muse 的安全架构最重</strong>：VM 内分两个安全域，agent 跑在 systemd-nspawn 容器里，凭证由 authd 托管、Sentinel 统一批准连接器动作与所有出网流量，agent 只见替代 token，并用 eBPF 做「污点出网」追踪。</li>
+<li><strong>dots</strong>：GPT-6 Astra、独立云电脑、4,000+ 应用插件；空闲时做只读「proactive research」；Custom Rules + Auto-review + 内置硬停（改密码、转账等必须人来做）。</li>
+<li><strong>Raft（原名 Slock，Botiverse）</strong>：不是单 agent，而是「人 + 多 agent」的团队协作层（频道、线程、任务、@）。agent 跑在用户自己机器上的 daemon 里，可接 Claude Code、Codex、Hermes 等外部运行时。2026-09-24 以 FSL-1.1-ALv2 <strong>源码可见</strong>（非 OSI 开源）发布 <code>botiverse/raft-source</code>，另有多个 Apache/MIT 周边仓库。</li>
+<li><strong>DeepSeek Bot</strong>：不是 DeepSeek 官方产品，是独立开发者 FeiZ 2026-10-07 发布的 DeepSeek Harness（DSH）插件（Apache-2.0），把 DSH 变成「主 bot + 群聊 + bot 间消息」的 IM 形态，数据全在本地；设计上明确借鉴 Grok Bot 与 Hermes Bot Mode。</li>
+<li><strong>开源侧</strong>：Hermes Agent Bot Mode（Nous Research）和 OpenClaw 是本地/自托管路线，靠 cron routine 和 heartbeat 唤醒。</li>
+<li><strong>标准层</strong>：唤醒方面 MCP Events 仍是草案（SEP-3415），ChatGPT（Work/dots）是目前唯一官方实现；agent 对接商家方面，Sierra + Meta 在推 Personal Agent Protocol（基于 OAuth）。</li>
+</ul>
+<h2 id="_2">对比表</h2>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>维度</th>
+<th>Grok Bot</th>
+<th>OpenAI dots</th>
+<th>Meta Muse</th>
+<th>Raft</th>
+<th>DeepSeek Bot</th>
+<th>Hermes Bot Mode / OpenClaw</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>运行位置</td>
+<td>服务器跑 agent 循环；每用户一台云电脑（Firecracker VM），所有 Bot 共享</td>
+<td>每个 dot 有自己的云电脑 + Chrome</td>
+<td>每用户一台专属云 VM，Muse 住在里面</td>
+<td>用户本机的 Computer/daemon 进程；服务端负责协作</td>
+<td>本地 DSH 桌面版或 Web 版插件</td>
+<td>本地或自托管 gateway</td>
+</tr>
+<tr>
+<td>休眠与唤醒</td>
+<td>一轮结束后停；VM 闲置几分钟后快照，下次调工具时恢复</td>
+<td>有活干就做，空闲时只读主动研究</td>
+<td>VM 常驻，支持 crons、并发子 agent</td>
+<td>有消息/任务时通过 wake bridge 唤醒外部 agent</td>
+<td>打开应用时运行</td>
+<td>Hermes：空闲后端 10 分钟回收；OpenClaw heartbeat 默认 30 分钟一次</td>
+</tr>
+<tr>
+<td>触发方式</td>
+<td>用户消息、routine（定时/webhook）、Slack、电话/会议、其他 agent、后台任务完成</td>
+<td>定时、应用事件、MCP Events（webhook）</td>
+<td>用户、cron</td>
+<td>频道 @、DM、任务分配</td>
+<td>用户消息、群聊 @</td>
+<td>cron routine、heartbeat、bot 间 DM</td>
+</tr>
+<tr>
+<td>记忆与 skills</td>
+<td>纯文本文件：profile.md / log / SKILL.md / routines</td>
+<td>从反馈中学习（细节未公开）</td>
+<td>文件化，可查看和编辑 Muse 的记忆；SKILL</td>
+<td>每个 agent 有独立 workspace 和记忆</td>
+<td>Markdown 记忆（借鉴 AgentMemoryRepo）</td>
+<td>每个 profile 有独立 memory、skills、SOUL.md</td>
+</tr>
+<tr>
+<td>多 agent</td>
+<td>主 agent 加 helper（通用、电脑操作、视频、云端编码）；多个 Bot 加群聊</td>
+<td>计划支持多个 dot 组队</td>
+<td>子 agent 群</td>
+<td>核心卖点：认领任务、交接、互相 review</td>
+<td>主 bot「Chief」加群管理员调度</td>
+<td>群聊 2–6 个 Bot，最多 3 轮；message_agent</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>Auto-review 模型（15 秒无回应即拦截）；外部内容标为不可信；密码走环境变量</td>
+<td>Custom Rules、Auto-review、内置硬停</td>
+<td>Sentinel、authd 替代 token、privsep、污点出网、分类器</td>
+<td>daemon 代理凭证，agent 不直接持有</td>
+<td>电脑/浏览器访问需按 Bot 授权，首个动作先问</td>
+<td>命令审批：once / session / always / deny</td>
+</tr>
+<tr>
+<td>渠道</td>
+<td>桌面、移动端、Slack、电话、邮箱</td>
+<td>ChatGPT、Slack、Teams（iMessage/RCS 候补）</td>
+<td>iOS、Android、Web、WhatsApp</td>
+<td>Raft 客户端、CLI</td>
+<td>DSH 内，加飞书、Slack、Discord、个人微信</td>
+<td>桌面版、Telegram 等</td>
+</tr>
+</tbody>
+</table></div>
+<h2 id="1-grok-bot">1. Grok Bot（主案例）</h2>
+<h3 id="11-lee-robinson">1.1 Lee Robinson 是谁</h3>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>时间</th>
+<th>经历</th>
+<th>来源</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2020 – 2025-07</td>
+<td>Vercel，约 5 年，从 IC 做到 VP（DevRel、产品、社区、文档）；加入时约 30 人，离开时约 650 人、ARR 超过 2 亿美元</td>
+<td><a target="_blank" rel="noopener" href="https://leerob.com/vercel">leerob.com/vercel</a>（2025-07）</td>
+</tr>
+<tr>
+<td>2025-07 – 2026-06</td>
+<td>Cursor 通才：工程、产品、市场、文档、课程；加入时约 70 人</td>
+<td><a target="_blank" rel="noopener" href="https://leerob.com/cursor">leerob.com/cursor</a></td>
+</tr>
+<tr>
+<td>2026-06 – 2026-08</td>
+<td>转 Cursor ML（Model Behavior），训练 Composer</td>
+<td><a target="_blank" rel="noopener" href="https://www.linkedin.com/posts/leeerob_personal-update-im-starting-a-new-role-activity-7475543145083035648-anp1">LinkedIn 2026-06-24</a></td>
+</tr>
+<tr>
+<td>2026-08-14 起</td>
+<td>Cursor 被 SpaceX 收购完成，并入 SpaceXAI，负责让 Grok「useful, tasteful, and safe」；X 简介写「ML @SpaceX」</td>
+<td><a target="_blank" rel="noopener" href="https://www.linkedin.com/posts/leeerob_cursor-is-now-a-part-of-spacex-cursor-activity-7494017572179329024-lfBA">LinkedIn 2026-08-14</a></td>
+</tr>
+<tr>
+<td>2026-08-20</td>
+<td>发帖称将训练 Grok 4.7，「to make sure it's exceptional in the Bot harness」</td>
+<td><a target="_blank" rel="noopener" href="https://twiscan.com/en/x/leerob/2090460185898762471">X（转载）</a></td>
+</tr>
+</tbody>
+</table></div>
+<p>和 Grok Bot 的关系：Grok Bot 的云电脑「run in Cursor's cloud」（<a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/overview">官方 FAQ</a>）；Lee 目前负责训练让 Grok 模型适配 Bot harness。讲座里说的「our implementation … is called a Bot」，指的就是 Grok Bot。</p>
+<h3 id="12-stanford-cs146s2026-10-08">1.2 讲座要点（Stanford CS146S，2026-10-08）</h3>
+<p>来源：<a target="_blank" rel="noopener" href="https://x.com/leerob/status/2108650243365736855">@leerob 帖子</a>（2026-10-10 发布）。</p>
+<ul>
+<li><strong>和普通 agent 的区别</strong>：跑在服务器上；有自己的云电脑；保存状态、记忆和 skills；只有调用发送工具时才说话；由事件唤醒；可以连续工作几个月。</li>
+<li><strong>保持 always-on 的方式</strong>：触发器唤醒 → 跑一轮 → 闲置 2 分钟后进程停 → 云电脑闲置几分钟后执行「同步文件 → 快照 → 停机」（不会在一轮中途停）→ 下次调工具时恢复快照，登录状态保留。服务器上保存一切，VM 随时可以重建。</li>
+<li><strong>唤醒源</strong>：用户在任意 app 发消息、routine（定时/webhook）、Slack、电话/会议、其他 agent、后台任务完成、定时 check-in。路由器去重并选定对话，同一对话一次只跑一轮；每次唤醒都记录来源。</li>
+<li><strong>系统分三块</strong>：应用与渠道（thin client）、服务器（入口 → 每个对话一条队列 → 模型 + 循环 + 状态）、agent 的电脑（Firecracker VM + Debian 容器 + 每个 agent 一个虚拟屏幕和 Chrome）。</li>
+<li><strong>可靠性</strong>：每条消息有唯一 ID，重试安全；推送只说「有变化」，数据以数据库为准；用 durable workflow（如 Temporal）而不是任务队列，崩溃后从断点续跑。1:1 消息可以插队打断当前一轮，群聊、Slack、routine、helper 的消息则批量排队。</li>
+<li><strong>Harness</strong>：只有一个 SendToUser 工具对用户说话，思考不外显，允许沉默；工具先给名字、细节按需加载；能力按成本从低到高尝试：已知信息 → connector → 搜索 → 浏览器 → 桌面 → 问人；截图交给 helper；每个工具的描述加 schema 控制在 4,000 字符以内；不在两轮之间增删工具。</li>
+<li><strong>安全</strong>：独立模型做 Auto-review，15 秒无人回应即拦截；邮件、webhook 文本标为不可信；记忆只是信息，不是指令；新建 routine 需要用户确认。</li>
+<li><strong>上下文工程</strong>：prompt 前缀保持不变以命中缓存，cache miss 当 bug 处理；用户一开始打字就预热缓存；超过 10 万 token 的长回合结束约 10 分钟后、趁缓存还热时做摘要。记忆分四层：Profile（最多 100 条 / 4,000 字符，常驻 prompt）、Log（最相关的 30 条）、Notes（短期）、可搜索记忆。</li>
+<li><strong>方向</strong>：每个出错的 bot 都变成 eval；内环每天修 harness，外环每几个月训下一代模型；「Delete the product」，尽量少造脚手架。</li>
+</ul>
+<h3 id="13">1.3 官方文档补充</h3>
+<ul>
+<li>每个 Bot 是有名字、职责、独立对话和记忆的「队友」。账号下所有 Bot <strong>共享同一台云电脑</strong>（文件、浏览器登录、CLI 凭证都共享），每个 Bot 有自己的屏幕；关掉 app 或电脑都不会停止后台任务和 routine。<a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/overview">overview</a> · <a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/computer-and-apps">computer-and-apps</a></li>
+<li>Routine：按定时或事件（如 Slack、GitHub）触发；每个 Bot 最多 50 个 routine，间隔至少 5 分钟，每个 routine 保留最近 20 条运行记录；长时间没人回应会暂停。Skill 可以通过「Teach」录制最长 10 分钟的屏幕操作生成。<a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/skills-routines-and-automations">skills &amp; routines</a></li>
+<li>电脑可以 Update（保留文件）或 Reset（从上次快照重建）。</li>
+</ul>
+<h2 id="2-openai-dots2026-09-29-devday">2. OpenAI dots（2026-09-29 DevDay 发布）</h2>
+<ul>
+<li>【官方】基于 GPT-6 Astra，有自己的云电脑，会从反馈中学习，可以 24/7 推进目标，通过插件连接 4,000+ 应用。首批面向 Pro 和 Business Premium，Enterprise 为 beta。<a target="_blank" rel="noopener" href="https://openai.com/index/introducing-dots/">OpenAI</a></li>
+<li>【第三方】空闲时做「proactive research」，只能用只读工具。安全分四层：只读模式、Custom Rules（四档：直接做 / 预先批准才做 / 先问 / 交给你）、Auto-review（Axios 称内部代号 Guardian）、内置硬停（改密码、账户间转账必须由人完成最后一步）。渠道包括 ChatGPT、Slack、Teams，iMessage/RCS 开放了候补名单。<a target="_blank" rel="noopener" href="https://endue.ai/blog/openai-dots-how-it-works/">endue</a> · <a target="_blank" rel="noopener" href="https://the-decoder.com/openai-launches-always-on-dots-agents-to-rival-metas-muse/">The Decoder</a> · <a target="_blank" rel="noopener" href="https://www.wired.com/story/openai-dots-always-on-ai-agents-that-proactively-help/">WIRED</a></li>
+<li>【官方】支持 MCP Events webhook 唤醒（Work 对话与 dots）。<a target="_blank" rel="noopener" href="https://developers.openai.com/plugins/build/mcp-events">OpenAI 文档</a></li>
+</ul>
+<h2 id="3-meta-muse2026-09-08">3. Meta Muse（2026-09-08 发布）</h2>
+<p>来源：<a target="_blank" rel="noopener" href="https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse">Meta AI Research：How We Built Safety Into Muse</a>【官方】</p>
+<ul>
+<li>每个用户一台专属云 VM，作为数据的 system of record；客户端直连 VM。</li>
+<li>VM 内分两个安全域：agent harness（代号 Hatch）跑在 systemd-nspawn 容器里，容器内 root 映射为非特权用户，限制系统调用和内核能力。容器外是安全服务：hatch-safety 分类器、privsep 连接器 worker、hatch-authd 凭证存储、Sentinel，以及独立的 Postgres。</li>
+<li>Sentinel 是连接器动作和所有出网流量的唯一授权方，在网络边界把替代 token 换成真凭证；用 eBPF 做「污点出网」：读过用户数据的进程不能再走自动放行。</li>
+<li>审批是严格的 capability，有一次性、会话级、任务级、限时、永久几档；审批弹窗直接走客户端，不经过和 Muse 的对话。</li>
+<li>浏览器子 agent 只看无障碍树，不能执行 JS；支付使用单次虚拟卡（Stripe Link）；漏洞赏金最高 30 万美元。</li>
+</ul>
+<h2 id="4-raftbotiverse-slock">4. Raft（Botiverse，原名 Slock）</h2>
+<ul>
+<li><strong>身份</strong>：Botiverse, Inc. 的产品，创始人 RC（stdrc）此前在 Moonshot 做 Kimi CLI。2026-06-12 由 Slock 更名为 Raft，2026-07-15 发布 Raft 1.0。【第三方转载 X/LinkedIn】<a target="_blank" rel="noopener" href="https://topicdigg.com/x/istdrc/2065446426432483446">更名帖</a> · <a target="_blank" rel="noopener" href="https://www.linkedin.com/posts/stdrc_last-year-i-built-kimi-cli-at-moonshot-today-activity-7483205772655390720-t_FW">Raft 1.0</a></li>
+<li><strong>产品机制</strong>【官方】：人和 agent 共用的工作区，包括频道、线程、DM、任务和 @。每个 agent 有持久身份、记忆和专长，记忆保存在用户本机；agent 自己认领任务、互相交接、设提醒、互相 review。可以接入外部 agent（Claude Code、Codex、Hermes Agent 等），使用用户自己的订阅和 key。「Computer」是用户机器上的轻量本地进程。<a target="_blank" rel="noopener" href="https://raft.build">raft.build</a></li>
+<li><strong>源码开放</strong>【官方】：2026-09-24 宣布 <a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source">botiverse/raft-source</a> 源码可见，许可证 FSL-1.1-ALv2（禁止竞争性使用，每个版本两年后转为 Apache-2.0）。仓库是 release mirror，每个版本一个快照提交，不接受 PR，主张用「Prompt Request」代替 PR。截至 10/11 约 567 star、106 fork。<a target="_blank" rel="noopener" href="https://raft.build/resources/blog/raft-build-is-now-source-available/">博客</a></li>
+<li><strong>架构</strong>（raft-source README）：<code>server</code>（API、Socket.IO 实时、持久化）、<code>web</code>、<code>cli</code>（人和 agent 共用）、<code>daemon</code>（在机器上运行 agent 并代理凭证，凭证经本地绑定 origin 的代理和每次启动生成的 token 下发，agent 不直接持有）、<code>computer</code>、<code>raft-sdk</code>；本地开发栈是 Postgres + Redis + 对象存储。</li>
+<li><strong>外部 agent 唤醒</strong>：<a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-external-agents">raft-external-agents</a> 提供 Claude Code channel 插件（<code>claude --channels plugin:raft-channel@raft</code>）。bridge 只 <code>POST /wake</code> 元数据，消息正文由模型用 CLI 自己拉取；有去抖合并，监听 loopback，每个会话一个 token。</li>
+<li><strong>其他公开仓库</strong>（Botiverse org，star 数截至 10/11）：</li>
+</ul>
+<div class="tw"><table>
+<thead>
+<tr>
+<th>仓库</th>
+<th>说明</th>
+<th>许可证</th>
+<th>Star</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/agent-vault">agent-vault</a></td>
+<td>读文件时把 secret 换成占位符，写入时还原</td>
+<td>Apache-2.0</td>
+<td>439</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/oar">oar</a></td>
+<td>Open Agent Runtime，统一 Claude Code、Codex、Cursor、Grok Build 等 harness 的编程接口；2026-08 建</td>
+<td>Apache-2.0</td>
+<td>179</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/hands">hands</a></td>
+<td>agent-native 的客户端应用发布平台</td>
+<td>MIT</td>
+<td>56</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/antiproton">antiproton</a></td>
+<td>基于 Durable Objects 的多租户 agent 运行时，空闲零成本，凭证不进上下文</td>
+<td>Apache-2.0</td>
+<td>28</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/musik">musik</a></td>
+<td>Raft app 参考实现（Login with Raft、Agent Manifest）</td>
+<td>MIT</td>
+<td>21</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>生态</strong>：<a target="_blank" rel="noopener" href="https://github.com/jackwener/OpenTeamFormat">OpenTeamFormat</a>（Apache-2.0，第三方开发者 jackwener）定义 Raft/Slock 团队模板的导入导出格式；<a target="_blank" rel="noopener" href="https://github.com/zolplay-labs/eve-raft">eve-raft</a> 是 Eve agent 的 Raft channel。</li>
+</ul>
+<h2 id="5-deepseek-bot2026-10-07">5. DeepSeek Bot（2026-10-07）</h2>
+<ul>
+<li><strong>身份</strong>：<strong>非 DeepSeek 官方产品</strong>。作者是独立开发者 FeiZ（GitHub <a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot">FeiZhuLulu/DeepSeek-Bot</a>），Apache-2.0，截至 10/11 约 617 star，v0.1 preview。宿主是 DeepSeek 官方的开源 agent 运行时 <a target="_blank" rel="noopener" href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>（MIT，约 24.7 万 star）；DSH v0.2 于 2026-09-29 推出 macOS/Windows 桌面版。</li>
+<li><strong>机制</strong>（README）：每个 bot 就是一个 DSH session，使用 DSH 的工具和模型。主 bot「Chief」权限最高，负责创建其他 bot 和群聊。群聊里由管理员 bot 默认应答并调度其他 bot，也可以直接 @ 某个 bot。bot 有 Markdown 记忆，可按 bot 和模型统计 token 用量。数据全在本地 <code>~/.dsh/bot</code> 和 <code>sessions/</code>。</li>
+<li><strong>致谢中列出的借鉴对象</strong>：AgentMemoryRepo（记忆格式）、Codex（checkpoint）、Hermes Bot Mode（每个群成员一个 session、交接）、OpenMausBot（群聊轮次）。第三方报道称它也受 Grok Bot 启发。<a target="_blank" rel="noopener" href="https://tau-home.com/en/post/deepseek-bot-multi-agent-plugin-for-deepseek-harness/">TAU-HOME</a></li>
+<li><strong>另有同名站点 deepseekbot.app</strong>（npm <code>deepseekbot</code> v1.1.0）：可接飞书、Slack、Discord、个人微信（仅限扫码主人的私聊），可选电脑/浏览器组件（尚未公开发布），首个动作默认先询问。<a target="_blank" rel="noopener" href="https://deepseekbot.app/en/docs/capabilities/">文档</a></li>
+</ul>
+<h2 id="6">6. 开源与本地路线</h2>
+<ul>
+<li><strong>Hermes Agent Bot Mode</strong>（Nous Research，MIT）【官方】：每个 Bot 就是一个 profile（<code>~/.hermes/profiles/&lt;bot&gt;/</code>，包含独立配置、记忆、skills、凭证和 SOUL.md），有一个永久的「Bot Chat」，<code>/new</code> 会改为压缩而不是新开会话。Routine 就是 cron。群聊 2–6 个 Bot，每条消息最多 3 轮；bot 之间用 <code>message_agent</code> 发消息；用 <code>[SILENT]</code> 表示沉默；同一 gateway 上的群聊有 durable driver，桌面端关掉后群聊仍在运行；最多保持 3 个热后端，空闲 10 分钟回收。<a target="_blank" rel="noopener" href="https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode">文档</a></li>
+<li><strong>OpenClaw</strong>（MIT）：默认每 30 分钟一次 heartbeat，在主对话里跑一轮完整 agent turn；可配置 activeHours 和 isolatedSession。按第三方测算，isolatedSession 能把单次 heartbeat 从约 10 万 token 降到 2,000–5,000 token。<a target="_blank" rel="noopener" href="https://docs.openclaw.ai/gateway/heartbeat">OpenClaw 文档</a> · <a target="_blank" rel="noopener" href="https://nventory.io/blog/hermes-agent-vs-openclaw-ecommerce">nventory</a></li>
+</ul>
+<h2 id="7">7. 其他相关产品与协议</h2>
+<ul>
+<li><strong>Instinct</strong>【第三方】：邀请制，没有传统 app，通过 iMessage、WhatsApp、短信、邮件、电话交互；有持久云电脑，可能主动给用户发消息或打电话。<a target="_blank" rel="noopener" href="https://www.theverge.com/tech/1008254/instinct-agent-ai-hands-on-muse-dots">The Verge</a></li>
+<li><strong>Personal Agent Protocol</strong>【官方】：Sierra 与 Meta 于 2026-10-06 发布，合作方包括 Genesys、Instinct、Rocket、Shopify、Stripe、Walmart。流程是在网站上发现能力 → 以访客或登录身份开启会话（基于 OAuth，跨渠道连续）→ 通过网站、API（MCP/OpenAPI）或企业自己的 agent 完成任务。<a target="_blank" rel="noopener" href="https://sierra.ai/blog/introducing-personal-agent-protocol">Sierra</a> · <a target="_blank" rel="noopener" href="https://personalagentprotocol.org/docs/spec">规范草案</a></li>
+<li><strong>Claude Code</strong>【官方】：Channels（私有的 <code>claude/channel</code> 通知，把事件推入<strong>正在运行</strong>的会话）；Routines（定时、GitHub、HTTP 触发，每次开新会话）。<a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/channels">Channels</a> · <a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/routines">Routines</a></li>
+<li><strong>MCP Events</strong>：SEP-3415 于 2026-10-06 提交，仍是草案；ChatGPT 是目前唯一的官方实现。<a target="_blank" rel="noopener" href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3415">PR</a></li>
+</ul>
+<h2 id="_3">待确认</h2>
+<ul>
+<li>dots 的记忆与 VM 生命周期细节，OpenAI 尚未官方披露。</li>
+<li>Raft 更名和 1.0 发布日期来自 X/LinkedIn 帖子的转载页。</li>
+<li>Manus、Cue 未纳入本文。</li>
+</ul></body></html>

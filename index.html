@@ -1,263 +1,261 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Always-on Agent 机制调研</title><style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:860px;margin:0 auto;padding:16px;line-height:1.7;color:#222;font-size:16px}h1{font-size:1.5em}h2{border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:2em}.tw{overflow-x:auto}table{border-collapse:collapse;font-size:14px;min-width:600px}td,th{border:1px solid #ddd;padding:6px;vertical-align:top}th{background:#f5f5f5}code{background:#f3f3f3;padding:1px 4px;border-radius:3px;font-size:.9em;word-break:break-all}a{color:#0a58ca;word-break:break-all}.toc{background:#fafafa;border:1px solid #eee;padding:8px 16px;font-size:14px}</style></head><body><details class="toc" open><summary>目录</summary><div class="toc">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Always-on agent 的十一层机制</title><style>body{margin:0;background:#fafaf8;color:#1f2328;font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;line-height:1.85;font-size:16.5px}
+main{max-width:780px;margin:0 auto;padding:24px 20px 80px}h1{font-size:1.6em;line-height:1.4}h2{margin-top:2.2em;padding-top:.6em;border-top:1px solid #e5e5e0;font-size:1.3em}
+p{text-align:justify;margin:1em 0}a{color:#0b62c4;text-decoration:none;word-break:break-all}a:hover{text-decoration:underline}
+code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.86em;background:#efefeb;padding:.1em .35em;border-radius:4px;word-break:break-all}
+pre{background:#1f2328;color:#e6edf3;padding:14px 16px;border-radius:8px;overflow-x:auto;line-height:1.55}pre code{background:none;color:inherit;padding:0;word-break:normal}
+table{border-collapse:collapse;width:100%;font-size:.88em;display:block;overflow-x:auto}td,th{border:1px solid #ddd;padding:6px 8px}th{background:#f0f0ec}
+strong{color:#000}nav.toc{background:#fff;border:1px solid #e5e5e0;border-radius:8px;padding:10px 18px;margin:20px 0;font-size:.95em}nav.toc ul{padding-left:1.2em;margin:.3em 0}
+.meta{color:#666;font-size:.9em}footer{color:#888;font-size:.85em;margin-top:3em}</style></head><body><main>
+<p class="meta">2026-10-11 · 按 Lee Robinson（Stanford CS146S）框架逐机制拆解 · <a href="v1.html">旧版（v1）</a></p>
+<nav class="toc"><strong>目录</strong><div class="toc">
 <ul>
-<li><a href="#_1">一页摘要</a></li>
-<li><a href="#_2">对比表</a></li>
-<li><a href="#1-grok-bot">1. Grok Bot（主案例）</a><ul>
-<li><a href="#11-lee-robinson">1.1 Lee Robinson 是谁</a></li>
-<li><a href="#12-stanford-cs146s2026-10-08">1.2 讲座要点（Stanford CS146S，2026-10-08）</a></li>
-<li><a href="#13">1.3 官方文档补充</a></li>
-</ul>
-</li>
-<li><a href="#2-openai-dots2026-09-29-devday">2. OpenAI dots（2026-09-29 DevDay 发布）</a></li>
-<li><a href="#3-meta-muse2026-09-08">3. Meta Muse（2026-09-08 发布）</a></li>
-<li><a href="#4-raftbotiverse-slock">4. Raft（Botiverse，原名 Slock）</a></li>
-<li><a href="#5-deepseek-bot2026-10-07">5. DeepSeek Bot（2026-10-07）</a></li>
-<li><a href="#6">6. 开源与本地路线</a></li>
-<li><a href="#7">7. 其他相关产品与协议</a></li>
-<li><a href="#_3">待确认</a></li>
+<li><a href="#s59220841">1. 唤醒与触发：把“来了什么”与“现在做什么”分开</a></li>
+<li><a href="#s35448457">2. 运行时与云电脑：agent 进程和工具电脑有两个生命周期</a></li>
+<li><a href="#s36375832">3. 持久化与可靠性：恢复会话、恢复步骤、避免重复副作用是三件事</a></li>
+<li><a href="#s21795354">4. 说话机制：把“模型完成”与“向人发送”变成两个事件</a></li>
+<li><a href="#s76690709">5. 工具加载：稳定工具目录与按需 schema 可以共存</a></li>
+<li><a href="#s93862234">6. 计算机使用：表示法、执行权与人接管各有一层</a></li>
+<li><a href="#s33381933">7. 多 agent：上下文隔离之后还要定义消息和取消语义</a></li>
+<li><a href="#s50337741">8. 上下文工程：把缓存稳定性当作运行时不变量</a></li>
+<li><a href="#s24638258">9. 记忆与 skills：写得进去还不够，要知道谁可改、何时读</a></li>
+<li><a href="#s59867335">10. 安全：模型判断与不可绕过的执行边界要同时存在</a></li>
+<li><a href="#s14012222">11. 评测与训练闭环：用失败轨迹验证整个系统</a></li>
+<li><a href="#s9262594">附录：仓库身份、版本与来源</a></li>
 </ul>
 </div>
-</details><h1 id="always-on-agent-grok-botraftdeepseek-bot">Always-on Agent 机制调研：Grok Bot、Raft、DeepSeek Bot 与同类产品</h1>
-<p>更新：2026-10-11（台北时间）。标注说明：【官方】=厂商文档/博客/仓库；【第三方】=媒体、社区或第三方站点。</p>
-<h2 id="_1">一页摘要</h2>
-<ul>
-<li><strong>形态已经收敛</strong>：Grok Bot、OpenAI dots、Meta Muse 三家 always-on agent 的共同骨架是「服务器上的 agent 循环 + 每个用户一台持久云电脑（VM/容器）+ 文件化记忆与 skills + 事件/定时唤醒 + 独立模型做风险审核」。差异主要在安全边界与渠道。</li>
-<li><strong>Grok Bot</strong>（Lee Robinson 10/8 Stanford CS146S 讲座）：空闲时什么都不跑；每用户一台 Firecracker VM，闲置几分钟后快照到磁盘、下次调工具再恢复；durable workflow 断点续跑；唯一的 SendToUser 工具让 agent 可以保持沉默；Auto-review 模型批风险动作，15 秒无人回应即拦截；记忆分 Profile / Log / Notes / 搜索四层；把 cache miss 当 bug。</li>
-<li><strong>Muse 的安全架构最重</strong>：VM 内分两个安全域，agent 跑在 systemd-nspawn 容器里，凭证由 authd 托管、Sentinel 统一批准连接器动作与所有出网流量，agent 只见替代 token，并用 eBPF 做「污点出网」追踪。</li>
-<li><strong>dots</strong>：GPT-6 Astra、独立云电脑、4,000+ 应用插件；空闲时做只读「proactive research」；Custom Rules + Auto-review + 内置硬停（改密码、转账等必须人来做）。</li>
-<li><strong>Raft（原名 Slock，Botiverse）</strong>：不是单 agent，而是「人 + 多 agent」的团队协作层（频道、线程、任务、@）。agent 跑在用户自己机器上的 daemon 里，可接 Claude Code、Codex、Hermes 等外部运行时。2026-09-24 以 FSL-1.1-ALv2 <strong>源码可见</strong>（非 OSI 开源）发布 <code>botiverse/raft-source</code>，另有多个 Apache/MIT 周边仓库。</li>
-<li><strong>DeepSeek Bot</strong>：不是 DeepSeek 官方产品，是独立开发者 FeiZ 2026-10-07 发布的 DeepSeek Harness（DSH）插件（Apache-2.0），把 DSH 变成「主 bot + 群聊 + bot 间消息」的 IM 形态，数据全在本地；设计上明确借鉴 Grok Bot 与 Hermes Bot Mode。</li>
-<li><strong>开源侧</strong>：Hermes Agent Bot Mode（Nous Research）和 OpenClaw 是本地/自托管路线，靠 cron routine 和 heartbeat 唤醒。</li>
-<li><strong>标准层</strong>：唤醒方面 MCP Events 仍是草案（SEP-3415），ChatGPT（Work/dots）是目前唯一官方实现；agent 对接商家方面，Sierra + Meta 在推 Personal Agent Protocol（基于 OAuth）。</li>
-</ul>
-<h2 id="_2">对比表</h2>
-<div class="tw"><table>
+</nav><h1 id="s84163175">Always-on agent 的十一层机制：从 Grok Bot 到可核验的实现</h1>
+<p>研究截点：2026-10-11。核心判断：always-on 正在收敛为“事件驱动、持久状态、外置工具环境、可压缩上下文与按需 skills”，但十一层机制远未同构：触发上 Grok 按人/后台分流，OpenClaw、Hermes 提供不同 steering/排队语义；运行时上 Grok 分离 server loop 与 Firecracker 电脑，Muse 围绕个人 VM 保存权威状态，本地 harness 则把在线性留给部署者；恢复上 Temporal replay、Raft 事务任务与 OpenHands 事件日志各解决不同故障；说话上 Grok 专用 send，Hermes/OpenClaw 可交付普通回复并抑制沉默；工具上 Codex deferred schema、Goose 动态扩展、Manus decoding mask 分叉；电脑使用上结构索引、像素与人接管互补；多 agent 已有隔离会话，但取消和共享资源所有权仍难；上下文正收敛到稳定前缀与可重读文件，摘要时机未统一；记忆从小档案、Letta 分层 MemFS 到 Codex 后台 consolidation；安全从 callback/审核模型发展到独立出口授权；评测已有故障回归，和模型训练闭环之间仍缺公开证据。对产品与投资，稀缺能力是可验证的恢复、授权、纠偏与长期完成率，而不是多几个入口、VM 或 helper。下文逐章给出这些判断的依据。</p>
+<p>证据口径：<strong>讲座自述</strong>来自用户提供的 lecture-slides.md，讲于 2026-10-08、记录标注发布于 10-09；未重新核验视频逐字稿。<strong>源码观察</strong>是对固定 Git 提交的独立静态审阅，不代表运行验证或第三方安全审计；README、工程博客、产品文档始终视为<strong>厂商/维护者自述</strong>。文中“取舍”是研究判断。正文按有证据的机制比较，未公开的闭源实现不靠推断补齐；仓库 URL、星数和 HEAD 日期见文末；代码链接固定到本次提交，另有逐项引用索引。</p>
+<h2 id="s59220841">1. 唤醒与触发：把“来了什么”与“现在做什么”分开</h2>
+<p>【讲座】Grok Bot 的消息、routine/webhook、Slack、电话、helper 完成事件先进入 router：去重、确定 conversation，再放入每会话串行队列。唤醒记录来源；1:1 用户消息可以插队、中断正在进行的 turn，群聊、routine 和 helper 结果则批处理。这意味着“用户纠偏”是调度优先级，而不只是追加一条 prompt。（讲座：<code>lecture-slides.md:61–65、100–103</code>。）</p>
+<p>【源码】OpenClaw 把策略做成配置。<a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/src/auto-reply/reply/queue/settings.ts#L14-L44">src/auto-reply/reply/queue/settings.ts:14–44</a> 的优先级是当次参数、session 配置、channel 配置、全局配置，最后默认 <code>steer</code>；因此不能照搬早期文档说它一律 collect。<a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/src/auto-reply/reply/queue/enqueue.ts#L42-L102">src/auto-reply/reply/queue/enqueue.ts:42–102</a> 的去重键同时包含 queue、channel/to/account/thread、chat type 和 message ID，用 JSON tuple 避免分隔符碰撞；缺少 message ID 的消息不受这条去重保护。<a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/src/auto-reply/reply/queue/enqueue.ts#L104-L385">src/auto-reply/reply/queue/enqueue.ts:104–170,314–385</a> 还把尚未决定能否注入当前 turn 的 steer 留在队列，失败再回退，避免纠偏请求与后续 FIFO 消息乱序。它并非硬编码“私聊必打断”，而是可按入口选择调度语义。</p>
+<p>heartbeat 也不能简单理解成 cron 别名。当前 <a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/src/infra/heartbeat-wake.ts#L12-L25">src/infra/heartbeat-wake.ts:12–25</a> 将旧 SDK 接口映射到 session-event wake，并区分请求在途、cron 正在运行、无待处理事件、被抢占等跳过原因。仓库文档 <a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/docs/gateway/heartbeat.md#L25-L100">docs/gateway/heartbeat.md:25–29,94–100</a> 明确：<code>every: "0m"</code> 只关闭周期 poll，后台 exec 完成仍可唤醒；完成事件返回工作所属 session，周期 poll 默认进入主 session；两者带不同来源标记。cron 的 <a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/src/cron/service/timer-execution.ts#L66-L104">src/cron/service/timer-execution.ts:66–104</a> 则校验 stream schedule key 与 source identity，在异步触发器结束后再次检查 abort，防止已取消的旧来源继续执行。这是“来源”参与正确性判断的实例，而不只是日志装饰。</p>
+<p>【源码】Hermes 的消息平台 gateway 与桌面 Bot Mode 要分开看，后者另有 <code>tui_gateway</code> 和 Bot Chat 同事通信（第四、七章）。消息入口 <a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/gateway/run_inbound.py#L693-L744">gateway/run_inbound.py:693–744</a> 默认 interrupt，支持 <code>queue</code>、<code>steer</code>，但活跃子 agent 或正在压缩上下文时强制降级排队：前者避免打断级联取消正在运行的 delegate，后者避免压缩轮换 session ID 时生成孤立分支。<code>652–691</code> 对纯文本尝试 steer/redirect，媒体则进入中断路径；Telegram 连续图片也有单独缓冲（616–645）。这比“支持打断”四个字有用：真正的产品延迟由可安全中断的位置决定。</p>
+<p>Codex 也已有具体事件通道。<a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/app-server/src/request_processors/mcp_event_stream.rs#L29-L105">codex-rs/app-server/src/request_processors/mcp_event_stream.rs:29–105</a> 将 MCP subscription 限于 hosted apps，拒绝重复 <code>subscription_id</code>，限制单连接订阅数，并要求连接已订阅目标 thread；启动中身份发生变化会失败。重连上限为三次、间隔一秒、启动超时九十秒。这是带身份约束的事件入口，不能据此声称所有终端 CLI session 已永久托管。Goose 的 <a target="_blank" rel="noopener" href="https://github.com/aaif-goose/goose/blob/3bd852002903e016ff30947e973f76e2fcfcf90f/crates/goose/src/scheduler/full.rs#L30-L100">crates/goose/src/scheduler/full.rs:30–31,75–100</a> 则将定时 recipe 列表存为 JSON，以 Tokio scheduler 驱动，运行中任务和取消 token 在内存。保存“下次何时运行”和保存“这次执行到哪”是不同的数据结构。</p>
+<p>【源码】社区 DS Bot 的 <a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/schedules.js#L1-L117">ds-bot/src/host/schedules.js:1–7,71–117</a> 注入 Harness 的可选 schedule service，将到期 prompt 投递至 Bot 或群组自己的 DSH Session；automation bundle 未开启就返回 unavailable。<code>16–28</code> 把 reminder JSON 转成 <code>[Scheduled task]</code> 来源文本。<code>127–140</code> 开始处理换新 session 后的 schedule 迁移，因此持久身份不能只靠延长单个上下文。其 README:98 明确不是 DeepSeek 官方产品；不要与官方 <code>deepseek-ai/deepseek-harness</code> 合并计算产品能力。</p>
+<p>【官方】Claude Code <a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/channels">Channels</a> 是向运行中的 session 推送 MCP 事件；<a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/routines">Routines</a> 是托管的 prompt、repo、环境和触发器组合，可从 schedule、API、GitHub 事件启动。两者解决的生命周期不同。Cowork 当前<a target="_blank" rel="noopener" href="https://support.claude.com/en/articles/13854387-schedule-recurring-tasks-in-claude-cowork">定时任务说明</a>称任务远程执行、每次独立 session，但依赖本地文件/app 的任务仍在本地，且 Pro/Max 在 10 月 6 日前创建的本地任务保留旧行为（访问 2026-10-11）。Muse 的<a target="_blank" rel="noopener" href="https://introducing.muse.ai/">产品设计文</a>描述事件与日程推进工作、用户可插话，却未公开具体 queue 和去重实现。dots 的发布材料也不足以核实 router；不应由“全天在线”反推这些细节。</p>
+<p>【判断】这里已收敛的是把事件送给有身份的会话，仍分叉的是纠偏怎样进入执行流。产品验收应测“同一 webhook 重发三次只创建一次工作”“连续发三条纠正后最终按哪个版本执行”“压缩或 helper 工作时停止多久生效”。把所有事件拼进一个 prompt，无法代替这个调度层。</p>
+<h2 id="s35448457">2. 运行时与云电脑：agent 进程和工具电脑有两个生命周期</h2>
+<p>【讲座】Grok Bot 在 server 跑 loop 与保存状态，空闲两分钟后 agent 进程停止；每用户一台 Firecracker VM，内部 Debian container、supervisor、文件服务和命令服务，每个活跃 agent 有独立 Chrome/虚拟屏幕。电脑闲置后 sync files→snapshot→stop，下次工具调用才恢复，不能在 turn 中途休眠。会话真相留在服务器，VM 可重建。这一分离同时降低闲置算力和客户端依赖；“always-on”指可唤醒与状态连续，并不意味着 CPU 常开。（讲座：<code>lecture-slides.md:57–87</code>。）</p>
+<p>【源码】E2B 提供的是工具执行环境，不能替应用保存“用户刚刚取消了什么”。其 infra 已重定向到 <code>e2b-dev/runtime</code>。<a target="_blank" rel="noopener" href="https://github.com/e2b-dev/runtime/blob/cf536c284434fdd2f09bbab35ec807a5dacc87e4/packages/api/internal/orchestrator/pause_instance.go#L29-L80">packages/api/internal/orchestrator/pause_instance.go:29–80</a> 先创建 snapshot build，再调用节点 Pause，只有成功才更新快照类型；节点容量不足会标记 build 失败并返回可重试的 <code>PauseQueueExhaustedError</code>。<code>85–113</code> 传递 <code>FilesystemOnly</code>，说明只保存文件系统与保存进程内存是不同恢复契约。Firecracker 自己的 <a target="_blank" rel="noopener" href="https://github.com/firecracker-microvm/firecracker/blob/fd9fc7a9f164b73002d22065d17c150d8c262d91/docs/snapshotting/snapshot-support.md#L56-L99">docs/snapshotting/snapshot-support.md:56–99</a> 明确快照包含 guest memory 与虚拟硬件状态，磁盘文件由使用者管理；恢复不能保证原网络连接存活，快照生命周期、鉴权和加密也交给上层。故“浏览器登录还在”可以来自持久 cookie，不能推出 WebSocket、下载和支付请求继续精确运行。</p>
+<p>【源码与官方文档】隔离层有三条路线：普通 Docker 使用宿主内核；gVisor 以用户态 application kernel 实现 Linux 接口，其 OCI runtime <code>runsc</code> 可接 Docker/Kubernetes；Firecracker 保存一个微型 VM 的 guest 状态。gVisor README:10–45 明确自己不是 syscall filter，也不是传统 VM；其 <a target="_blank" rel="noopener" href="https://github.com/google/gvisor/blob/309599c1ec020ad52c82b7b6657acba73888e367/pkg/sentry/kernel/task_syscall.go#L84-L146">pkg/sentry/kernel/task_syscall.go:84–146</a> 在 sentry 内查 syscall table，经过 tracing/security hook 后调用自己的 syscall 实现，而非简单把所有 guest syscall 原样放行。Firecracker 的 <a target="_blank" rel="noopener" href="https://github.com/firecracker-microvm/firecracker/blob/fd9fc7a9f164b73002d22065d17c150d8c262d91/src/vmm/src/persist.rs#L168-L199">src/vmm/src/persist.rs:168–199</a> 则先保存 VMM state，再通过 KVM 将 guest memory 写入独立文件，最后重新标记 virtio queue 的 dirty memory。容器镜像解决打包，gVisor/VM 解决隔离，调度器与外部存储解决何时停、停后丢什么；不能把 Docker、gVisor、Firecracker 当成三个同层互斥选项。</p>
+<p>Daytona 的版本边界尤其需要说清：本地默认分支 HEAD 是 2026-06-25 的文档树，以下读的是同仓库 2026-06-23 提交 <code>01c502bb1f1ff8f2885d0cd490e043736083dca8</code> 的源码摘录，不宣称它就是十月托管服务的部署版本。<a target="_blank" rel="noopener" href="https://github.com/daytonaio/daytona/blob/01c502bb1f1ff8f2885d0cd490e043736083dca8/apps/api/src/sandbox/managers/sandbox.manager.ts#L100-L169">apps/api/src/sandbox/managers/sandbox.manager.ts:100–169</a> 先用 Redis 锁选一个 auto-stop worker，筛选 actual/desired 都为 STARTED、没有 pending 变更且超过闲置阈值的 sandbox，再取得单 sandbox 锁：ephemeral 实例走软删除，其余改 desiredState 为 STOPPED，交状态同步器执行；<code>173–210</code> 另处理已停止实例的 archive。<a target="_blank" rel="noopener" href="https://github.com/daytonaio/daytona/blob/01c502bb1f1ff8f2885d0cd490e043736083dca8/apps/api/src/sandbox/services/sandbox-activity.service.ts#L41-L75">apps/api/src/sandbox/services/sandbox-activity.service.ts:41–75</a> 先把 last activity 放 Redis sorted set，每十秒批量刷数据库。由此可见“闲置”本身是带刷新延迟的分布式状态；不能只在模型 turn 结束时随手关闭 VM。</p>
+<p>Hermes 已有 <code>tools/environments/local.py</code>、<code>docker.py</code>、<code>ssh.py</code>、<code>modal.py</code>、<code>daytona.py</code> 等执行后端；<a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tools/environments/docker.py#L53-L85">tools/environments/docker.py:53–85</a> 会验证、去重转发的环境变量名。gateway 放在哪里与命令跑在哪里可以不同，但不能据此断言它自带 Grok 式整机快照控制面。OpenHands 当前仓库已是 Agent Canvas，README:148–168 指向另一个 <code>OpenHands/software-agent-sdk</code> 中的 Agent Server；README:52–66 明确可在本地或云服务器运行，无 sandbox 模式会直接暴露所在机器文件系统。Raft 的 <code>packages/computer/</code> 则围绕已连接机器的 resident service、supervisor 与会话运行环境组织，属于让 agent 使用现有机器的路线；没有证据说明其一律用 Firecracker。</p>
+<p>【官方】Muse 的安全工程说明比产品页更细：runtime cell、credential store 与保存持久应用状态的 Postgres 分隔；所以“都在用户 VM 内”也不是“都在一个 agent 容器里”。<a target="_blank" rel="noopener" href="https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse">安全工程文</a>还明确 Confidential VM 是未来能力，当前不能保证 Meta 无法访问数据。dots 的<a target="_blank" rel="noopener" href="https://openai.com/index/introducing-dots/">2026-09-29 发布文</a>确认使用自己的云电脑和长时间后台工作，未公开 hypervisor、休眠阈值或工作流引擎。Manus 2.0/Cue 的<a target="_blank" rel="noopener" href="https://www.manus.im/blog/introducing-manus-2-0">官方发布入口</a>列出共享的 Cascade harness、Cloud Computer 与 Automations；本次没有取得足够证据将其归入某一具体 VM 实现。</p>
+<p>【判断】云电脑最有价值的指标不是“启动快”，而是活跃分钟成本、恢复后任务成功率、跨版本恢复兼容性与隔离边界。应用要把任务状态从机器状态中抽离；基础设施供应商若只卖容器创建 API，价值容易被替换，若能处理冷启动、恢复一致性和凭据边界，才承担了长期 agent 的难点。</p>
+<h2 id="s36375832">3. 持久化与可靠性：恢复会话、恢复步骤、避免重复副作用是三件事</h2>
+<p>【讲座】Grok Bot 给消息唯一 ID，服务端拒绝重复 ID；会话队列一次执行一个 turn，每一步存储。客户端通知只表示“有变化”，真正内容从数据库拉取，以 sequence number 检查缺口。讲座用 Temporal 解释 durable workflow：崩溃后接续完成点，而普通 job queue 重跑 job。这里应补一句技术边界：job queue 也能人为拆步骤或做 checkpoint；durable workflow 也不会自动让外部发送和扣款 exactly-once。（讲座：<code>lecture-slides.md:89–98</code>。）</p>
+<p>【源码】Temporal 的 <a target="_blank" rel="noopener" href="https://github.com/temporalio/samples-python/blob/b0e4d843ed49a647b5fcd1e18453ab1d048ba857/openai_agents/basic/workflows/tools_workflow.py#L13-L28">openai_agents/basic/workflows/tools_workflow.py:13–28</a> 把 <code>Runner.run</code> 放进 workflow，把天气工具包为 activity；<a target="_blank" rel="noopener" href="https://github.com/temporalio/samples-python/blob/b0e4d843ed49a647b5fcd1e18453ab1d048ba857/openai_agents/basic/run_worker.py#L38-L69">openai_agents/basic/run_worker.py:38–69</a> 注册 <code>OpenAIAgentsPlugin</code>，给模型 activity 30 秒 start-to-close timeout，再注册业务 activities。关键片段是：</p>
+<pre><code class="language-python"># temporalio/samples-python，tools_workflow.py:20–24
+ tools=[
+     temporal_agents.workflow.activity_as_tool(
+         get_weather, start_to_close_timeout=timedelta(seconds=10)
+     )
+ ],
+</code></pre>
+<p>恢复粒度来自 workflow 历史与 activity 完成记录，而不是把整个模型循环重新请求一遍。但如果 activity 已把邮件发出去、尚未来得及上报成功就崩溃，重试仍可能重发；邮件服务的 idempotency key、业务 outbox 或查询已发送回执仍是应用责任。样例证明集成方式，未证明无限期任务已经在生产通过故障注入。</p>
+<p>【源码】Raft 自建较轻的数据库机制。<a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source/blob/26f77ef97c40d3d91aa2c5e42b0fd66b8bf39fe6/packages/server/src/services/durableTasks.ts#L10-L135">packages/server/src/services/durableTasks.ts:10–15,93–135</a> 在业务变更的同一事务内写 task，提交后先 inline 执行；恢复 worker 回收过期 lease，每次写操作以 <code>(claimed_by, attempts)</code> fencing。<code>243–254</code> 使用以下原子认领：</p>
+<pre><code class="language-sql">-- durableTasks.ts:243–254，节选核心选择逻辑
+WHERE id IN (
+  SELECT id FROM ...
+  WHERE state = 'open' AND lease_until &lt; ... AND attempts &lt; max_attempts
+  ORDER BY lease_until LIMIT ... FOR UPDATE SKIP LOCKED
+)
+</code></pre>
+<p>它允许 handler 被执行两次，要求 handler 幂等并用 revision 防止旧任务覆盖新状态（47–48）；不是 Temporal 那种程序历史 replay，且 recovery 开关在 <code>294–306</code> 受环境变量控制，不能凭源文件存在就宣称部署已开启。发送层另有 <a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source/blob/26f77ef97c40d3d91aa2c5e42b0fd66b8bf39fe6/packages/server/src/services/agentSendReplayService.ts#L75-L195">packages/server/src/services/agentSendReplayService.ts:75–195</a>：<code>onConflictDoNothing</code> 后查回同 sender/key 的消息；若开启严格校验，同 key 不同目标、正文或附件会拒绝，而不是假装新内容已送出。消息、附件和 <code>onInserted</code> 派生 outbox 工作可落在同一事务，是比“消息去重”更完整的边界。</p>
+<p>【源码】同属 botiverse 的 OAR 是运行时适配层，不能当成 Raft 所有底层能力已统一。<a target="_blank" rel="noopener" href="https://github.com/botiverse/oar/blob/67d77ddec470dda5add664644c0cfb29c679660c/packages/oar/src/runtimes/pi-durable/session.ts#L33-L77">packages/oar/src/runtimes/pi-durable/session.ts:33–77</a> 先 watch snapshot 再订阅增量，调用底层 <code>harness.resume()</code>，按 <code>inputId</code> 查询已有 submission；prompt 在忙时 reject、steer 要求有 active turn、queue 映射 followUp。<code>94–113</code> 明确暴露 durable queue、撤回、abort 和带 cursor 的 rawEvents。durability 的责任实际在所接的 pi-durable；其他 adapter 是否同等强，需要逐个看 capability。</p>
+<p>OpenHands SDK 的 <a target="_blank" rel="noopener" href="https://github.com/OpenHands/software-agent-sdk/blob/3934349da2db0433238621542173a00a8af7439c/openhands-sdk/openhands/sdk/conversation/event_store.py#L188-L238">openhands-sdk/openhands/sdk/conversation/event_store.py:188–238</a> 给出事件日志层的具体保证：跨进程文件锁内先从磁盘同步，拒绝重复 event ID 与不存在的 parent ID，分配连续 index，写盘后才更新内存映射。它支持重建有序会话，但“重复 append 报错”与“重复发送安全返回同一 receipt”并不等价。Goose 上述 scheduler 的 <code>clear_running_state</code> 会清掉 currently_running、session ID 和进程启动时间；其 JSON 调度清单不是模型步骤的事务日志。比较可靠性时应分别看调度计划、推理事件、外部副作用与客户端同步，而不以有无一个数据库作判断。</p>
+<p>【判断】应要求厂商演示三种崩溃点：模型返回后尚未保存、外部动作成功但 receipt 未落盘、用户取消与恢复同时发生。聊天记录能重载只覆盖第一层状态；事务/outbox/fencing 把业务正确性补齐；durable engine 降低长流程编排成本。对投资而言，“可恢复”必须问清恢复哪个层级、最长重复窗口和谁承担副作用补偿。</p>
+<h2 id="s21795354">4. 说话机制：把“模型完成”与“向人发送”变成两个事件</h2>
+<p>【讲座】Grok Bot 只有调用 <code>SendToUser</code> 才对外说话，普通模型文字留在内部；允许完成工作但沉默。工具承载文本、文件、选择题、密码输入和付款确认；最后一次发送还能结束 turn，省掉一次只为总结的模型调用。这样，通知频率成为可训练、可评测的决策，而非每次唤醒必回一句。（讲座：<code>lecture-slides.md:106–116</code>。）</p>
+<p>【源码】Letta/MemGPT 的历史 API server 早已采用显式发送：archive 的 <a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta/blob/56ba9c25552605eec89de8ed3dc6394b625c1993/letta/functions/function_sets/base.py#L71-L84">letta/functions/function_sets/base.py:71–84</a> 中 <code>send_message</code> 调用 <code>interface.assistant_message</code>，与内存工具相分离。必须标明这是归档实现，不能据此推断当前 Letta Code 所有输出都经同一个工具。Hermes Bot Mode 则提供另一种兼容路线：<a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tui_gateway/prompt_turn.py#L19-L28">tui_gateway/prompt_turn.py:19–28</a> 保留消息记录与 completion event，只把成功 turn 的纯沉默标记变为空文本；失败时保留诊断。因此它仍可依赖 final response，却在 delivery boundary 决定不展示。OpenClaw heartbeat 的当前约定也是 <code>NO_REPLY</code>（<a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/blob/961bd6b1677339c6dcf769cbe5393508eb4f2de0/docs/gateway/heartbeat.md#L98">docs/gateway/heartbeat.md:98</a>），并非所有场景都使用 Grok 式唯一发送工具。</p>
+<p>DS Bot 的 <a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/prompt.js#L8-L16">ds-bot/src/host/prompt.js:8–16</a> 按来源决定 final text 投给谁：来自其他 Bot 的请求自动回送请求者，<code>reply_to: user</code> 则出现在接收 Bot 自己的用户聊天；群组使用独立 conversation。它要求 <code>ask_user</code> 发出选择卡后结束 turn，避免阻塞式提问让其他 Bot 消息排在后面。这个约定能在源码中读到，但 prompt 要求本身不等于每个模型都会遵守，需 delivery 层一起验证。</p>
+<p>【官方】Muse 的设计文把值得打扰才通知、可调主动程度、结构化接受/拒绝卡和可交互 Artifacts 分别处理；其中审批不能仅靠主 agent 理解一句“好”。Claude Channels 文档也区分 terminal 中的工具发送确认与目标平台真正收到的正文。ChatGPT agent 的<a target="_blank" rel="noopener" href="https://openai.com/index/introducing-chatgpt-agent/">发布说明</a>允许用户接管浏览器并在需要时确认；这些 UI 行为不能证明后端采用某个私有 send 工具。</p>
+<p>【判断】至少应记录内部事件、投递尝试和用户可见消息三份状态。“不说话”要成为明确成功结果，否则监控会把沉默当失败重试，最终造成通知风暴。审批卡还应绑定动作版本：用户批准的收件人、正文、金额若随后改变，原批准就不应继续有效。</p>
+<h2 id="s76690709">5. 工具加载：稳定工具目录与按需 schema 可以共存</h2>
+<p>【讲座】Grok Bot 先给名称，需要时加载详细定义；单工具 description＋schema 控制在 4,000 字符内，回合之间不要任意增删工具，失效时返回可操作错误。这里不是“工具越少越好”，而是把发现、定义暴露和调用授权分开：一个能力可以已登记、尚未把长 schema 放入模型输入，同时此刻没有调用权限。（讲座：<code>lecture-slides.md:118、135–139</code>。）</p>
+<p>【源码】Codex 的 <a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/core/src/tools/handlers/tool_search.rs#L66-L119">codex-rs/core/src/tools/handlers/tool_search.rs:66–119</a> 仅将 <code>exposure.is_deferred()</code> 的 registry entry 加入搜索；稳定 runtime 用弱引用身份判断，动态条目比较 search info，再决定是否重建搜索 handler。<code>232–282</code> 校验 query/limit 并返回选中的定义；<code>289–335</code> 在 code mode 中先检查当前 step 的嵌套工具策略，再限制返回数量，还传入 <code>tool_input_schema_max_bytes</code> 与 description-first 配置。这个先过滤权限再取 top-k 的顺序很关键，否则搜索前几名全是不可调用工具，会制造“搜到了但用不了”的死循环。不能把 Grok 的 4,000 字符建议当成 Codex 的硬编码全局上限。</p>
+<p>Goose 的 <a target="_blank" rel="noopener" href="https://github.com/aaif-goose/goose/blob/3bd852002903e016ff30947e973f76e2fcfcf90f/crates/goose/src/agents/platform_extensions/ext_manager.rs#L68-L129">crates/goose/src/agents/platform_extensions/ext_manager.rs:68–129</a> 把 <code>search_available_extensions</code> 和 <code>manage_extensions</code> 做成工具：先发现 extension，再启用/停用，资源另用 list/read。它改变的是 extension 状态，不等同于 Codex 从既有 deferred registry 检索 schema；工具集合变化带来的 prefix 成本需要另测。Goose 同时在 <a target="_blank" rel="noopener" href="https://github.com/aaif-goose/goose/blob/3bd852002903e016ff30947e973f76e2fcfcf90f/crates/goose/src/agents/platform_extensions/code_execution.rs#L608">crates/goose/src/agents/platform_extensions/code_execution.rs:608</a> 提示先用 bash 搜索、读取签名与输入输出类型，再运行 TypeScript，是把大量接口移出模型初始输入、交由代码环境发现的另一条路。</p>
+<p>DeepSeek Harness 的 <a target="_blank" rel="noopener" href="https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/packages/skill/tool-skill/src/index.ts#L28-L84">packages/skill/tool-skill/src/index.ts:28–84</a> 将 skill catalog 描述默认限制为 500 字符，持久记录此次发布的 entries，按需调用 <code>skill</code> 获取完整说明，并使 catalog 可见性匹配当前 agent 实际能解析到的 tool registration。这是 skill 加载，不宜冒充所有 MCP 工具都做了语义搜索。Claude Agent SDK 公开了 allowed tools、hooks、skills 等宿主接口，但核心 CLI 是单独 subprocess：<a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-agent-sdk-python/blob/b6e9d12fe1cc98dde988ab7b7713c1feeee50c6c/src/claude_agent_sdk/_internal/transport/subprocess_cli.py#L36-L68">src/claude_agent_sdk/_internal/transport/subprocess_cli.py:36–68</a> 甚至处理宿主退出后的子进程清理；SDK 源码不是完整 Claude Code 模型调度器。</p>
+<p>【官方】Manus 2025-07-18 <a target="_blank" rel="noopener" href="https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus">工程文</a>走“保留定义、限制选择”的路线：由状态决定允许的动作，避免删除 schema 破坏 cache 和旧工具引用。它描述了 prefill/logit masking；这是当时的工程自述，不能未经证据转成“Cue 2026 仍完全相同”。</p>
+<p>【判断】工具数量必须同时报“安装数、当前可见数、首次请求 schema tokens、搜索召回率”。四千个连接应用不意味着一次请求有四千个工具 schema。对于开发者，优先固定 catalog 与序列化，再决定用 tool search、代码接口文件还是模型端约束；否则一次小小的插件热更新就可能把整段缓存打掉。</p>
+<h2 id="s93862234">6. 计算机使用：表示法、执行权与人接管各有一层</h2>
+<p>【讲座】Grok 把 computer use 交给独立 helper，优先读页面结构，必要时在 1280×800 像素屏上点击；登录、验证码、captcha、支付交人。主 agent 保持 API→搜索→已登录浏览器→桌面的成本次序，且连接器坏了不能擅自从浏览器绕过去。屏幕放 helper 不只是节省 token，也缩小网页注入进入主对话的面积。（讲座：<code>lecture-slides.md:120–128</code>。）</p>
+<p>【源码】OpenHands SDK 的 <a target="_blank" rel="noopener" href="https://github.com/OpenHands/software-agent-sdk/blob/3934349da2db0433238621542173a00a8af7439c/openhands-tools/openhands/tools/browser_use/impl.py#L553-L585">openhands-tools/openhands/tools/browser_use/impl.py:553–585</a> 以节点 index 点击，<code>get_state(include_screenshot=False)</code> 默认取结构；需要截图时拆出 screenshot 数据单独返回。它证明结构操作与图片可以混合，而不能证明任何网页上的 index 永久有效；页面变化后必须刷新状态。Raft 的 <a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source/blob/26f77ef97c40d3d91aa2c5e42b0fd66b8bf39fe6/packages/computer/src/browserHandoff.ts#L19-L56">packages/computer/src/browserHandoff.ts:19–56</a> 只是验证 http(s) URL 后调用系统浏览器 opener，在 Windows 避免经 cmd.exe；这个名称含 handoff 的文件并不是“人接管远程 agent 浏览器”的实现，不能用关键词命中充证据。</p>
+<p>E2B 的 <a target="_blank" rel="noopener" href="https://github.com/e2b-dev/E2B/blob/df6c368152b067512702fc677952c0fc4e13c2f0/packages/desktop-js/src/sandbox.ts#L267-L299">packages/desktop-js/src/sandbox.ts:267–299</a> 是更底层的像素工具：截图实际执行 <code>scrot --pointer</code>，通过文件 API 读临时 PNG，清理失败不阻止返回；点击通过 <code>xdotool click 1</code>，双击是 <code>--repeat 2 1</code>。这些函数没有自行识别按钮、判断是否已点击成功或选择何时交给人。开发者仍需在上层实现观察—动作—再观察与授权状态机；“提供 desktop SDK”不等于“提供完整电脑 agent”。</p>
+<p>【官方】Muse 的安全文给出更严格的 browser helper：CDP broker 在 runtime cell 外，helper 只看 accessibility tree，不拿原始 DOM、不执行页面 JavaScript；用户接管或安全填充密码时 agent 暂停。ChatGPT agent 官方材料则组合视觉浏览器、文本浏览器、terminal 与 connectors，用户可随时接管。这些都是厂商说明，本次没有独立验证 broker 能否被绕过，也没有证据把两者归为同一 computer-use 模型。</p>
+<p>【判断】DOM 更丰富但扩大泄漏与脚本执行面；accessibility tree 更紧凑却丢失部分视觉布局；像素通用但慢且易受尺寸变化影响。能访问页面不代表能安全处理凭据，能点击不代表能恢复中断交易。采购或投研应把任务覆盖率、人接管率、失败恢复及每一步可审计性一起看，而不是只比较点击速度。</p>
+<h2 id="s33381933">7. 多 agent：上下文隔离之后还要定义消息和取消语义</h2>
+<p>【讲座】Grok Bot 的主 agent 快速回应，长研究、视频、电脑操作、云端 coding 分给 fresh-context helpers；主 agent 持续接用户纠偏，用 todo 跟踪请求，可以查看或给 helper 发消息。收益是把长工具轨迹移出主上下文，但共享电脑、文件和记忆随即成为并发系统问题。（讲座：<code>lecture-slides.md:41–42、130–133</code>。）</p>
+<p>【源码】Codex 并不是所有 helper 都一律空白上下文。<a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/core/src/agent/control/spawn.rs#L81-L124">codex-rs/core/src/agent/control/spawn.rs:81–124</a> 明确筛选 fork 继承内容，保留 system/developer/user 和部分回答，排除工具调用、reasoning、旧 inter-agent communication 与父级累计用量；full-history fork 还可以保留上下文 baseline。<a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/core/src/agent/control/mailbox.rs#L15-L92">codex-rs/core/src/agent/control/mailbox.rs:15–55,59–92</a> 用 ThreadId→Mailbox 保存队列，watch 通知有待收信，recipient 卸载时仍保留消息。但这里的结构是内存 <code>Mutex&lt;HashMap&lt;...&gt;&gt;</code>，单看这个文件不能把 residency 卸载不丢信扩大成进程崩溃后保证投递。</p>
+<p>Hermes 则要区分短期 delegate 与 Bot Mode 的长期同事。<a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tools/delegate_tool_child_run.py#L64-L83">tools/delegate_tool_child_run.py:64–83</a> 在注册 child 时检查 parent 是否已停止，把晚创建 child 也取消，补上“停止已发出，但 fan-out 尚未创建完”的竞态；<code>42–46</code> 记录未赶在 child 停止前送达的 steer。Bot Mode 的 <a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tools/bot_mode_dm.py#L1-L95">tools/bot_mode_dm.py:1–13,67–95</a> 将 <code>message_agent</code> 限在 canonical Bot Chat，验证实时 roster，由服务端加来源，后台进程通过本地 CLI 或 peer gateway 投递，完成通知再唤醒发送者。返回 <code>queued + delivery_id</code> 只是提交确认，不是收件回执；工具说明还将消息上限设为 16,000 字符（41–46），防止同事把整段上下文灌过来。</p>
+<p>DS Bot 的 <a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/tools.js#L61-L85">ds-bot/src/host/tools.js:61–85</a> 拒绝向自己发送，解析 Bot 身份再走异步 deliver；<a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/prompt.js#L23-L32">ds-bot/src/host/prompt.js:23–32</a> 给 Main Bot 建人、分工、组群权限，普通 Bot 不自动拥有同等管理权。Claude Agent SDK 的 <a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-agent-sdk-python/blob/b6e9d12fe1cc98dde988ab7b7713c1feeee50c6c/src/claude_agent_sdk/types.py#L2557-L2566">src/claude_agent_sdk/types.py:2557–2566</a> 默认只向宿主转发 subagent 的 tool-use/result，带 <code>parent_tool_use_id</code>，可选择开启文本/thinking 转发。这种流量分层能让 UI 显示进度而不把嵌套轨迹全部交回主模型。Raft/OAR 则提供跨 harness 的统一控制/观察接口；具体 agent 各自保留什么 context，仍由相应 adapter 与 runtime 决定。</p>
+<p>【官方】Muse 公开了 browser subagent；dots 发布文把“未来的 dots 团队”与现在一个 primary dot 区分，不能从未来叙事推出已发布任意规模同事网络。Manus/Cue 的产品页称每个 agent 有自己的邮箱、电话、钱包和电脑，群聊里可以互相分工；更可核验的是 <a target="_blank" rel="noopener" href="https://open.manus.ai/docs/v2/agents-overview">Agents API</a>：每个 agent 的 <code>task_id</code> 指向持久主会话，默认 IM agent 可通过 <code>agent-default-main_task</code> 调用 <code>task.sendMessage</code>，不必先查 UUID。这给出了身份与对话的映射，仍没有公开 mailbox 顺序、共享记忆锁或取消传播的完整协议。</p>
+<p>【判断】并行度不是协调能力。值得测的是任务归属是否唯一、helper 结果是否过期、取消能否覆盖晚出生的 child、同一浏览器是否有互斥控制权。给投资对象一个能被中途修改的任务，比看它一次生成十个 agent 更能揭示技术水平。</p>
+<h2 id="s50337741">8. 上下文工程：把缓存稳定性当作运行时不变量</h2>
+<p>【讲座】Grok 在两次摘要之间固定 tools、system prompt（含 memory/routine 快照）、首条消息；新时间与变更说明追加末尾。工具排序稳定、分段 hash 定位 cache miss，打开聊天或输入时预热。超过 100K tokens 的大 turn 结束约十分钟后，趁 cache 温热异步摘要，保留最近若干消息原文；截图和大工具结果分别留给 helper 与文件。这些阈值均来自讲座，不是跨产品推荐默认值。（讲座：<code>lecture-slides.md:148–165</code>。）</p>
+<p>【源码】Hermes 的 <a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/gateway/session_prompt_pin.py#L46-L81">gateway/session_prompt_pin.py:46–81</a> 持久化 effective prompt 输入，读写带 <code>expected_session_id</code> fence；先写盘再发布内存 entry，旧 turn 不能把旧 prompt pin 写进 reset/resume 后的新 session。这把缓存问题与并发正确性连在一起。DS Bot 的 <a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/prompt.js#L1-L49">ds-bot/src/host/prompt.js:1–8,38–49</a> 故意不把动态 roster 放进身份前缀，让模型需要时 <code>list_bots</code>；<a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/memory.js#L19-L22">ds-bot/src/host/memory.js:19–22</a> 说明每个 Session 初次渲染冻结 memory section，到 checkpoint 或 fresh part 才重取。代价是长期记忆写入成功与当前上下文看见更新之间存在延迟，系统必须另有查询或追加提示。</p>
+<p>Goose 的 <a target="_blank" rel="noopener" href="https://github.com/aaif-goose/goose/blob/3bd852002903e016ff30947e973f76e2fcfcf90f/crates/goose/src/agents/state_machine/ops_compaction.rs#L257-L273">crates/goose/src/agents/state_machine/ops_compaction.rs:257–273</a> 只在下一次 inference 之前且超过阈值时压缩；若 assistant 尾部结束 turn、仍等待 tool responses 或已有成功 final-output tool，则跳过。原因不是保守，而是压掉未回答的 tool request 会让随后 result 成为孤儿。<code>308–328</code> 将压缩结果和 usage 作为状态机 effect 提交。它与 Grok 的“用户离开后暖缓存摘要”是两种时机：前者守模型调用边界，后者优化交互等待和缓存费用。</p>
+<p>Codex fork 的 durable baseline 复用已经体现 prefix 价值；DSH 的 skill catalog 另保留结构化 source entries，让 UI/持久化消费者不用从面向模型的 XML 风格文案反向解析事实。Manus 工程文强调 append-only、稳定序列化、保留可恢复的 URL/文件路径，并把失败记录留在上下文；以上是 2025 年经验，不是本次独立测得的 cache 命中率。</p>
+<p>【判断】应同时观测 prefix hash、cached/uncached input、摘要成本和摘要后任务正确率。缓存命中不是目的本身：省掉几千 token 却丢失用户刚撤回的授权，属于错误。稳定的是已发布的历史，变化通过明确事件追加；压缩是创建新上下文版本，应保留未完成任务、权限、来源、关键路径与最新纠正的原文锚点。</p>
+<h2 id="s24638258">9. 记忆与 skills：写得进去还不够，要知道谁可改、何时读</h2>
+<p>【讲座】Grok profile 最多 100 facts/4,000 字符常驻，log 取 30 条相关近期事实，短 notes 更快衰减，其余走搜索；重要性加权、时间衰减，每 turn 后增改，删除只能针对本次看见的事实。关于用户的事实跨 agent 共享、每 agent 写自己的文件；memory 是信息，不是指令。skills 为 <code>skills/*/SKILL.md</code>，先提供指针，匹配任务再加载正文。（讲座：<code>lecture-slides.md:48–53、167–174</code>。）</p>
+<p>【源码】Letta 必须分代看：<code>letta-ai/letta</code> 当前 README:5,39–41 已将活跃实现指向 <code>letta-code</code>，原 API server 在 archive。归档 <a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta/blob/56ba9c25552605eec89de8ed3dc6394b625c1993/letta/schemas/memory.py#L155-L192">letta/schemas/memory.py:155–192</a> 把 block 的字符限额、只读标记与内容格式化进上下文；<a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta/blob/56ba9c25552605eec89de8ed3dc6394b625c1993/letta/functions/function_sets/base.py#L87-L164">letta/functions/function_sets/base.py:87–164</a> 提供 conversation search 与 archival insert，<code>246–280</code> 让模型追加/精确替换 core block，替换找不到旧文本就报错，以空字符串替换可删除。MemGPT 的核心是有限的工作记忆加显式检索/编辑通道，不是简单把全聊天做 embedding。</p>
+<p>当前 Letta Code 的 <a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta-code/blob/271f119dcf37d58649a18e6c733386b3c710a456/src/memory-constraints.ts#L11-L127">src/memory-constraints.ts:11–33,39–73,101–127</a> 已把约束落在 memory 文件树：支持 core/file 字符预算、目录深度、shared-memory 布局与只读 glob；MemFS v2 要求每层必要的 <code>MEMORY.md</code> 索引；检查只读文件时比较 trusted accepted tree，创建、修改、删除都拒绝。这个服务级约束比提示模型“别改这些记忆”强，也显示 block 路线可以演进为受治理的文件系统，并非两者永远对立。</p>
+<p>Hermes 的 <a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tools/memory_tool.py#L1-L57">tools/memory_tool.py:1–5,48–57</a> 将 <code>MEMORY.md</code> 与 <code>USER.md</code> 分开，配置缺省限额分别 2,200 和 1,375 字符；<code>171–210</code> 对后台 review 删除/替换设置 gate，可进入 pending 等人工处理。与 Grok 自动删“已经看到的事实”相比，它在后台遗忘上更谨慎。<a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tools/skills_tool.py#L1-L239">tools/skills_tool.py:1–4,206–239</a> 则扫描 YAML frontmatter，先给 name/description，<code>skill_view</code> 才读正文，平台/环境条件还影响可见性。</p>
+<p>Codex 是批处理记忆管线：<a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/memories/README.md#L29-L75">codex-rs/memories/README.md:29–75</a> 描述仅符合条件的 root session 启动时后台提取旧 rollout，按 age/idle window、租约和并发上限筛选；phase 1 产出 raw memory 与 rollout summary 并去除 secrets。实际 phase 2 的 <a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/memories/write/src/phase2.rs#L49-L145">codex-rs/memories/write/src/phase2.rs:49–145</a> 先拿全局锁、建立 git baseline、加载有数量与未使用天数约束的输入，再运行受限 consolidation agent。README:85–137 进一步说明按 usage count/last usage 排序，落为 <code>raw_memories.md</code>、<code>rollout_summaries/</code>，由 git diff 暴露删除与新增，工作区无变化就跳过。它的“衰减”至少包含基于近期使用的筛选，不应写成 Grok 同款 relevance×time 公式。</p>
+<p>DS Bot 提供更小而直观的实现：<a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/blob/bdc5fda64e2ea1e83a4d146440072a2413025df4/ds-bot/src/host/memory.js#L1-L68">ds-bot/src/host/memory.js:1–22,32–68</a> 有每 Bot、team 共享目录、逐条 before/after journal、session 快照、deleted-Bot archive 和 reviewed cursor；单事实 300 字符、主索引 4,000、topic 16,000、最多 40 topics。remember/forget 与 turn 后 review 共用写入路径，单进程串行写，固定快照保护 cache。它适合解释一个产品如何从“记住偏好”落到有归属和版本的存储，但串行化只在持有 team 的进程内，不能据此宣称多机一致性已解决。</p>
+<p>【判断】长期护城河不是记忆条数，而是事实可追溯、可纠正、可遗忘且不跨域串用。SKILL.md 的名称、描述、正文、可选 scripts/references 正在收敛成懒加载知识接口；skills 可以含操作指令，因此必须按其可信来源处理，不能借“记忆共享”把某个网页上的命令升级成所有 agent 的全局规则。</p>
+<h2 id="s59867335">10. 安全：模型判断与不可绕过的执行边界要同时存在</h2>
+<p>【讲座】Grok 用独立 reviewer 检查风险动作；被挡后请求用户确认，15 秒无回应仍阻止。email/webhook 标为不可信，记忆只提供事实；未经要求不替用户联系别人，新增 routines 要批准；密码经安全输入进入环境变量，操作用户电脑需授权。这里的 15 秒是讲座行为，不能推广成行业默认，更不能把超时当批准。（讲座：<code>lecture-slides.md:141–145</code>。）</p>
+<p>【源码】Codex 的 <a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/core/src/guardian/mod.rs#L1-L101">codex-rs/core/src/guardian/mod.rs:1–3,79–101</a> 将 issuing step 的审核上下文与隔离 reviewer 分开；<a target="_blank" rel="noopener" href="https://github.com/openai/codex/blob/a07c8ebd57feedc4cf5dfe854c8e9101de54186b/codex-rs/core/src/guardian/approval_request.rs#L13-L73">codex-rs/core/src/guardian/approval_request.rs:13–73</a> 为 exec、stdin、patch、network、MCP 与权限扩张建立不同 typed request。MCP 请求不仅带 tool name 和 arguments，也带 connector、已连接账号、description、风险 annotations；网络请求含目标 host/protocol/port。这样 reviewer 能判断“替哪个账号执行哪种动作”，而非只读一行主 agent 自述。代码证明审核输入结构与独立路径存在，不证明审核误放率。</p>
+<p>Claude SDK 的 <a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-agent-sdk-python/blob/b6e9d12fe1cc98dde988ab7b7713c1feeee50c6c/src/claude_agent_sdk/types.py#L2502-L2523">src/claude_agent_sdk/types.py:2502–2523</a> 是容易被忽略的边界：<code>can_use_tool</code> 不是每次调用必经的总闸，已被 permission rules 或 bypass 模式允许的动作可跳过它；要观察/拦截每次调用应使用 PreToolUse hook，而返回 allow 的 hook 又会绕过该 callback。<code>2572–2596</code> 的 <code>verbatim_prompts</code> 防止外部拼接文本中的 <code>@path</code> 被 CLI 当成本地文件展开，并有最低 CLI 版本要求；<code>2675–2678</code> 明说 skills 选择只是 context filter，agent 仍可能用文件工具读到没列出的 skill。公开 claude-code 仓库里的 Hookify 插件提供具体例子：<a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-code/blob/2301018b1f61073c501a8e7a4813ef48c239163b/plugins/hookify/hooks/hooks.json#L4-L14">plugins/hookify/hooks/hooks.json:4–14</a> 注册十秒 timeout 的 PreToolUse 命令，<a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-code/blob/2301018b1f61073c501a8e7a4813ef48c239163b/plugins/hookify/hooks/pretooluse.py#L25-L70">plugins/hookify/hooks/pretooluse.py:25–70</a> 加载本地规则、输出判断，但 import/执行异常时返回错误说明并放行。它是可扩展的策略插件，不能当成不可绕过且失败关闭的安全内核。提示可见性、工具权限与文件权限不能混成一个开关。</p>
+<p>【源码】agent-vault 展示了“凭据不进模型”与“凭据不可被 agent 读出”的差距。<a target="_blank" rel="noopener" href="https://github.com/botiverse/agent-vault/blob/8f0bacf22eaa82938e4a8158926b29d82e678321/src/vault.ts#L31-L74">src/vault.ts:31–40,47–74</a> 用 AES-256-GCM，key 和密文都放本地目录，以 0700/0600 保护；<code>113–118</code> 可读取 key 解密。CLI 支持脱敏占位符、恢复文件内容与仅列 key 名；<a target="_blank" rel="noopener" href="https://github.com/botiverse/agent-vault/blob/8f0bacf22eaa82938e4a8158926b29d82e678321/src/cli.ts#L109-L123">src/cli.ts:109–123</a> 恢复后把真实 secret 写入目标文件。它减少日志和对话意外泄漏，却不能隔离拥有同一 OS 用户任意 shell/read 权限的 agent。不要因同属 botiverse 就断言 Raft 所有凭据已经过此工具，更不能把 TTY 检查视为硬安全边界。</p>
+<p>【官方】Muse 提供另一种更强的结构：authd 保存真实凭据，privsep worker 执行连接器，Sentinel 审批后在网络边界用真 token 替换 surrogate；审批答复由 UI 直接回 Sentinel，不经主聊天。其 tainted egress 用内核数据流标记限制读取用户数据后的自动外发。以上均来自<a target="_blank" rel="noopener" href="https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse">Meta 安全文</a>，不是我们复现的隔离保证。dots 的<a target="_blank" rel="noopener" href="https://help.openai.com/en/articles/20001529-dots-privacy-security-and-safety-faqs">安全 FAQ</a>区分连接范围、Custom Rules、auto-review；<a target="_blank" rel="noopener" href="https://alignment.openai.com/auto-review/">Auto-review 研究文</a>强调检查可能造成严重或难逆损害的动作。开放的 Codex Guardian 不能直接充当闭源 dots 整套安全实现的代码证明。</p>
+<p>Sierra 的 <a target="_blank" rel="noopener" href="https://sierra.ai/blog/introducing-personal-agent-protocol">Personal Agent Protocol 公告</a>（2026-10-06）处理 agent 与企业之间的身份授权：网站发现能力，guest session 可先查询，需要账号时 OAuth 授权，session 跨网站/API/企业 agent 延续，消费者决定读写权限，企业决定开放操作。它不是新的本地 sandbox，也不是多 agent 调度器。尤其公告说 v0.1 规范计划当月稍后发布，细权限、push 与支付扩展是后续方向；截至本次材料，不能把它写成已有成熟公开实现和确定字段的协议。</p>
+<p>【判断】投资上最有区分度的是权限绑定的粒度与可撤销性：谁代表谁、动作带走什么数据、批准是否绑定最终参数、被拒后能否换工具绕行。reviewer 降低人工负担，OS/网络/凭据隔离限制最坏结果，两者互补。单纯 prompt 标注 untrusted 是必要但不充分的防线。</p>
+<h2 id="s14012222">11. 评测与训练闭环：用失败轨迹验证整个系统</h2>
+<p>【讲座】Grok 的内环每天把失败转 eval，调整 harness/prompt/inference 后回归；外环每几个月将 harness 与 evals 用于下代模型训练。SFT 学工具格式和快答时机，RL 练长指令、skills/memory、点击 grounding 和多 Bot 协作；主 agent 与长任务 helper 的优化目标不同。这是路线自述，讲座没有给可复现数据集、训练配方或独立指标。（讲座：<code>lecture-slides.md:176–186</code>。）</p>
+<p>【源码】开源最硬的证据首先是失败语义测试。Raft <a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source/blob/26f77ef97c40d3d91aa2c5e42b0fd66b8bf39fe6/packages/server/src/services/durableTasks.test.ts#L46-L80">packages/server/src/services/durableTasks.test.ts:46–80</a> 真实检验事务回滚不留 task、lease 过期只被一个 worker 认领、旧 inline writer 返回 fenced；<code>83–135</code> 覆盖重试耗尽与不认识的 task kind。Hermes <a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/blob/97a9ae8ee55d31bebce49f1fb6b5ef775323976a/tests/cron/test_restart_safe_worker_death_evidence.py#L11-L82">tests/cron/test_restart_safe_worker_death_evidence.py:11–48,58–82</a> 参数化 hard exit、payload exception、并发 recovery、timeout，并让真实子进程 <code>os._exit(9)</code>，再观察账本和失败可见性。这比只断言“有 heartbeat 函数”更贴近 always-on 风险。本文只检查测试源码，没有在这些大型项目上安装依赖、运行整套测试，因此不声称测试在本机通过。</p>
+<p>DeepSeek Harness 的 <a target="_blank" rel="noopener" href="https://github.com/deepseek-ai/deepseek-harness/blob/d743267388641bc76f17c45ce8b4c231aed1d32c/snapshots/session/skill-load/snapshot.yml#L1-L12">snapshots/session/skill-load/snapshot.yml:1–12</a> 将 scenario、headless profile、composition、prompt/schema 来源以及 workspace setup 固定；同目录保存版本化 session JSONL。<code>recording: authored</code> 明确是编写的样例，不应包装成生产成功轨迹。它可测序列化和 harness 契约回归，但无法单独证明模型在陌生任务上正确使用 skill。Codex 的 Guardian UI snapshots、memory pipeline 测试以及 OpenHands 的事件存储测试也属于工程回归，和强化学习收益证据不是同一层。</p>
+<p>【官方】OpenAI 的 <a target="_blank" rel="noopener" href="https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna">GPT-6 Astra system card 的 dots 附录</a>描述用去标识的员工 dots rollout 构造审核测试，再定向修改成不应执行的动作，观察原始请求的拒绝率和合成违规动作的召回率。这说明“更少打扰”与“更多阻止越权”应在同一曲线上评估；它仍是厂商自评，合成负例也不覆盖真实长期漂移。Meta 安全文披露 agentic red-teaming 与外部赏金计划，但未提供可直接与 Grok/OpenClaw 对齐的长期成功率。Manus 的 context engineering 路线则把快速改 harness 与底层模型升级解耦，和模型厂商纵向训练主 agent/helper 的路线存在明确分叉。</p>
+<p>【独立证据】<a target="_blank" rel="noopener" href="https://apnews.com/article/3a4572eb4cf4e95d8a0dfdad6e6ca065">AP 对 Muse 的报道</a>（2026-09-08）与 <a target="_blank" rel="noopener" href="https://www.axios.com/2026/09/29/openai-dots-ai-assistant-devday">Axios 对 dots 发布会的报道</a>（2026-09-29）能核实产品发布与公开演示，后者记录了现场延迟；它们不能核实快照、幂等或注入拦截率。本次未找到足以横向排名所有对象的独立 always-on 长期评测，故不造“综合可靠性第一”。</p>
+<p>【判断】Charles 若做产品，最小有用 eval 应是一条跨机制轨迹：重复事件到达→执行到外部副作用→杀进程→恢复→用户改目标→helper 晚回→摘要→下周召回旧偏好。分别判定任务是否成功、重复副作用数、越权数、纠偏延迟、无效通知、可恢复事实和总成本。若做投资，优先看团队能否把真实事故变成这种回归资产，并展示随版本改善的曲线；模型成本下降会普惠行业，长期授权、恢复语义和可验证反馈循环的积累更难复制。</p>
+<h2 id="s9262594">附录：仓库身份、版本与来源</h2>
+<p>以下为 2026-10-11 的 GitHub API 星数快照，不是评分。日期为本次检出默认分支 HEAD 的 commit 日期（统一 UTC），不是仓库 <code>pushed_at</code>，更不是部署日期；原始 API JSON 保存在 sources/evidence/，完整 SHA、原始时区日期和本地路径在 repository-manifest.json。未发现必须写为“不存在”的主要目标，但若干名称已迁移；额外同名候选 BotHarness/DeepSeekBot 的 API 可核实存在，本地检出不完整，不拿它充当已读源码。</p>
+<table>
 <thead>
 <tr>
-<th>维度</th>
-<th>Grok Bot</th>
-<th>OpenAI dots</th>
-<th>Meta Muse</th>
-<th>Raft</th>
-<th>DeepSeek Bot</th>
-<th>Hermes Bot Mode / OpenClaw</th>
+<th>核实后的 GitHub 仓库</th>
+<th style="text-align: right;">Stars</th>
+<th>本次 HEAD / UTC 日期</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>运行位置</td>
-<td>服务器跑 agent 循环；每用户一台云电脑（Firecracker VM），所有 Bot 共享</td>
-<td>每个 dot 有自己的云电脑 + Chrome</td>
-<td>每用户一台专属云 VM，Muse 住在里面</td>
-<td>用户本机的 Computer/daemon 进程；服务端负责协作</td>
-<td>本地 DSH 桌面版或 Web 版插件</td>
-<td>本地或自托管 gateway</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/OpenHands/OpenHands">OpenHands/OpenHands</a></td>
+<td style="text-align: right;">90,566</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/OpenHands/OpenHands/commit/2d174175cedeac45a0bd7c776728464d7c1140a7">2d174175ce</a> · 2026-10-11</td>
 </tr>
 <tr>
-<td>休眠与唤醒</td>
-<td>一轮结束后停；VM 闲置几分钟后快照，下次调工具时恢复</td>
-<td>有活干就做，空闲时只读主动研究</td>
-<td>VM 常驻，支持 crons、并发子 agent</td>
-<td>有消息/任务时通过 wake bridge 唤醒外部 agent</td>
-<td>打开应用时运行</td>
-<td>Hermes：空闲后端 10 分钟回收；OpenClaw heartbeat 默认 30 分钟一次</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/BotHarness/DeepSeekBot">BotHarness/DeepSeekBot</a></td>
+<td style="text-align: right;">16</td>
+<td>本地 HEAD 不可读；最近 commit 未核实</td>
 </tr>
 <tr>
-<td>触发方式</td>
-<td>用户消息、routine（定时/webhook）、Slack、电话/会议、其他 agent、后台任务完成</td>
-<td>定时、应用事件、MCP Events（webhook）</td>
-<td>用户、cron</td>
-<td>频道 @、DM、任务分配</td>
-<td>用户消息、群聊 @</td>
-<td>cron routine、heartbeat、bot 间 DM</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot">FeiZhuLulu/DeepSeek-Bot</a></td>
+<td style="text-align: right;">632</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot/commit/bdc5fda64e2ea1e83a4d146440072a2413025df4">bdc5fda64e</a> · 2026-10-11</td>
 </tr>
 <tr>
-<td>记忆与 skills</td>
-<td>纯文本文件：profile.md / log / SKILL.md / routines</td>
-<td>从反馈中学习（细节未公开）</td>
-<td>文件化，可查看和编辑 Muse 的记忆；SKILL</td>
-<td>每个 agent 有独立 workspace 和记忆</td>
-<td>Markdown 记忆（借鉴 AgentMemoryRepo）</td>
-<td>每个 profile 有独立 memory、skills、SOUL.md</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent</a></td>
+<td style="text-align: right;">252,692</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/NousResearch/hermes-agent/commit/97a9ae8ee55d31bebce49f1fb6b5ef775323976a">97a9ae8ee5</a> · 2026-10-11</td>
 </tr>
 <tr>
-<td>多 agent</td>
-<td>主 agent 加 helper（通用、电脑操作、视频、云端编码）；多个 Bot 加群聊</td>
-<td>计划支持多个 dot 组队</td>
-<td>子 agent 群</td>
-<td>核心卖点：认领任务、交接、互相 review</td>
-<td>主 bot「Chief」加群管理员调度</td>
-<td>群聊 2–6 个 Bot，最多 3 轮；message_agent</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/OpenHands/software-agent-sdk">OpenHands/software-agent-sdk</a></td>
+<td style="text-align: right;">1,237</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/OpenHands/software-agent-sdk/commit/3934349da2db0433238621542173a00a8af7439c">3934349da2</a> · 2026-10-11</td>
 </tr>
 <tr>
-<td>安全</td>
-<td>Auto-review 模型（15 秒无回应即拦截）；外部内容标为不可信；密码走环境变量</td>
-<td>Custom Rules、Auto-review、内置硬停</td>
-<td>Sentinel、authd 替代 token、privsep、污点出网、分类器</td>
-<td>daemon 代理凭证，agent 不直接持有</td>
-<td>电脑/浏览器访问需按 Bot 授权，首个动作先问</td>
-<td>命令审批：once / session / always / deny</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-agent-sdk-python">anthropics/claude-agent-sdk-python</a></td>
+<td style="text-align: right;">8,248</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-agent-sdk-python/commit/b6e9d12fe1cc98dde988ab7b7713c1feeee50c6c">b6e9d12fe1</a> · 2026-10-09</td>
 </tr>
 <tr>
-<td>渠道</td>
-<td>桌面、移动端、Slack、电话、邮箱</td>
-<td>ChatGPT、Slack、Teams（iMessage/RCS 候补）</td>
-<td>iOS、Android、Web、WhatsApp</td>
-<td>Raft 客户端、CLI</td>
-<td>DSH 内，加飞书、Slack、Discord、个人微信</td>
-<td>桌面版、Telegram 等</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-code">anthropics/claude-code</a></td>
+<td style="text-align: right;">150,156</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/anthropics/claude-code/commit/2301018b1f61073c501a8e7a4813ef48c239163b">2301018b1f</a> · 2026-10-09</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/aaif-goose/goose">aaif-goose/goose</a></td>
+<td style="text-align: right;">55,154</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/aaif-goose/goose/commit/3bd852002903e016ff30947e973f76e2fcfcf90f">3bd8520029</a> · 2026-10-09</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/agent-vault">botiverse/agent-vault</a></td>
+<td style="text-align: right;">439</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/agent-vault/commit/8f0bacf22eaa82938e4a8158926b29d82e678321">8f0bacf22e</a> · 2026-02-19</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/oar">botiverse/oar</a></td>
+<td style="text-align: right;">179</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/oar/commit/67d77ddec470dda5add664644c0cfb29c679660c">67d77ddec4</a> · 2026-10-11</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source">botiverse/raft-source</a></td>
+<td style="text-align: right;">568</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source/commit/26f77ef97c40d3d91aa2c5e42b0fd66b8bf39fe6">26f77ef97c</a> · 2026-10-06</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/daytonaio/daytona">daytonaio/daytona</a></td>
+<td style="text-align: right;">71,569</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/daytonaio/daytona/commit/ec4c21b2d597091ac09ecc278f3bcc172575a987">ec4c21b2d5</a> · 2026-06-25</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/deepseek-ai/deepseek-harness">deepseek-ai/deepseek-harness</a></td>
+<td style="text-align: right;">247,334</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/deepseek-ai/deepseek-harness/commit/d743267388641bc76f17c45ce8b4c231aed1d32c">d743267388</a> · 2026-10-09</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/e2b-dev/E2B">e2b-dev/E2B</a></td>
+<td style="text-align: right;">14,275</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/e2b-dev/E2B/commit/df6c368152b067512702fc677952c0fc4e13c2f0">df6c368152</a> · 2026-10-09</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/e2b-dev/runtime">e2b-dev/runtime</a></td>
+<td style="text-align: right;">1,708</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/e2b-dev/runtime/commit/cf536c284434fdd2f09bbab35ec807a5dacc87e4">cf536c2844</a> · 2026-10-11</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/firecracker-microvm/firecracker">firecracker-microvm/firecracker</a></td>
+<td style="text-align: right;">37,283</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/firecracker-microvm/firecracker/commit/fd9fc7a9f164b73002d22065d17c150d8c262d91">fd9fc7a9f1</a> · 2026-10-08</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/google/gvisor">google/gvisor</a></td>
+<td style="text-align: right;">19,636</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/google/gvisor/commit/309599c1ec020ad52c82b7b6657acba73888e367">309599c1ec</a> · 2026-10-10</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta-code">letta-ai/letta-code</a></td>
+<td style="text-align: right;">3,573</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta-code/commit/271f119dcf37d58649a18e6c733386b3c710a456">271f119dcf</a> · 2026-10-10</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta">letta-ai/letta</a></td>
+<td style="text-align: right;">25,101</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta/commit/5bcdd177d70fa2b31a754cfcd801e77b2e1ab16a">5bcdd177d7</a> · 2026-09-10</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/openai/codex">openai/codex</a></td>
+<td style="text-align: right;">128,624</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/openai/codex/commit/a07c8ebd57feedc4cf5dfe854c8e9101de54186b">a07c8ebd57</a> · 2026-10-11</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw">openclaw/openclaw</a></td>
+<td style="text-align: right;">391,667</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/openclaw/openclaw/commit/961bd6b1677339c6dcf769cbe5393508eb4f2de0">961bd6b167</a> · 2026-10-11</td>
+</tr>
+<tr>
+<td><a target="_blank" rel="noopener" href="https://github.com/temporalio/samples-python">temporalio/samples-python</a></td>
+<td style="text-align: right;">374</td>
+<td><a target="_blank" rel="noopener" href="https://github.com/temporalio/samples-python/commit/b0e4d843ed49a647b5fcd1e18453ab1d048ba857">b0e4d843ed</a> · 2026-10-09</td>
 </tr>
 </tbody>
-</table></div>
-<h2 id="1-grok-bot">1. Grok Bot（主案例）</h2>
-<h3 id="11-lee-robinson">1.1 Lee Robinson 是谁</h3>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>时间</th>
-<th>经历</th>
-<th>来源</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>2020 – 2025-07</td>
-<td>Vercel，约 5 年，从 IC 做到 VP（DevRel、产品、社区、文档）；加入时约 30 人，离开时约 650 人、ARR 超过 2 亿美元</td>
-<td><a target="_blank" rel="noopener" href="https://leerob.com/vercel">leerob.com/vercel</a>（2025-07）</td>
-</tr>
-<tr>
-<td>2025-07 – 2026-06</td>
-<td>Cursor 通才：工程、产品、市场、文档、课程；加入时约 70 人</td>
-<td><a target="_blank" rel="noopener" href="https://leerob.com/cursor">leerob.com/cursor</a></td>
-</tr>
-<tr>
-<td>2026-06 – 2026-08</td>
-<td>转 Cursor ML（Model Behavior），训练 Composer</td>
-<td><a target="_blank" rel="noopener" href="https://www.linkedin.com/posts/leeerob_personal-update-im-starting-a-new-role-activity-7475543145083035648-anp1">LinkedIn 2026-06-24</a></td>
-</tr>
-<tr>
-<td>2026-08-14 起</td>
-<td>Cursor 被 SpaceX 收购完成，并入 SpaceXAI，负责让 Grok「useful, tasteful, and safe」；X 简介写「ML @SpaceX」</td>
-<td><a target="_blank" rel="noopener" href="https://www.linkedin.com/posts/leeerob_cursor-is-now-a-part-of-spacex-cursor-activity-7494017572179329024-lfBA">LinkedIn 2026-08-14</a></td>
-</tr>
-<tr>
-<td>2026-08-20</td>
-<td>发帖称将训练 Grok 4.7，「to make sure it's exceptional in the Bot harness」</td>
-<td><a target="_blank" rel="noopener" href="https://twiscan.com/en/x/leerob/2090460185898762471">X（转载）</a></td>
-</tr>
-</tbody>
-</table></div>
-<p>和 Grok Bot 的关系：Grok Bot 的云电脑「run in Cursor's cloud」（<a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/overview">官方 FAQ</a>）；Lee 目前负责训练让 Grok 模型适配 Bot harness。讲座里说的「our implementation … is called a Bot」，指的就是 Grok Bot。</p>
-<h3 id="12-stanford-cs146s2026-10-08">1.2 讲座要点（Stanford CS146S，2026-10-08）</h3>
-<p>来源：<a target="_blank" rel="noopener" href="https://x.com/leerob/status/2108650243365736855">@leerob 帖子</a>（2026-10-10 发布）。</p>
-<ul>
-<li><strong>和普通 agent 的区别</strong>：跑在服务器上；有自己的云电脑；保存状态、记忆和 skills；只有调用发送工具时才说话；由事件唤醒；可以连续工作几个月。</li>
-<li><strong>保持 always-on 的方式</strong>：触发器唤醒 → 跑一轮 → 闲置 2 分钟后进程停 → 云电脑闲置几分钟后执行「同步文件 → 快照 → 停机」（不会在一轮中途停）→ 下次调工具时恢复快照，登录状态保留。服务器上保存一切，VM 随时可以重建。</li>
-<li><strong>唤醒源</strong>：用户在任意 app 发消息、routine（定时/webhook）、Slack、电话/会议、其他 agent、后台任务完成、定时 check-in。路由器去重并选定对话，同一对话一次只跑一轮；每次唤醒都记录来源。</li>
-<li><strong>系统分三块</strong>：应用与渠道（thin client）、服务器（入口 → 每个对话一条队列 → 模型 + 循环 + 状态）、agent 的电脑（Firecracker VM + Debian 容器 + 每个 agent 一个虚拟屏幕和 Chrome）。</li>
-<li><strong>可靠性</strong>：每条消息有唯一 ID，重试安全；推送只说「有变化」，数据以数据库为准；用 durable workflow（如 Temporal）而不是任务队列，崩溃后从断点续跑。1:1 消息可以插队打断当前一轮，群聊、Slack、routine、helper 的消息则批量排队。</li>
-<li><strong>Harness</strong>：只有一个 SendToUser 工具对用户说话，思考不外显，允许沉默；工具先给名字、细节按需加载；能力按成本从低到高尝试：已知信息 → connector → 搜索 → 浏览器 → 桌面 → 问人；截图交给 helper；每个工具的描述加 schema 控制在 4,000 字符以内；不在两轮之间增删工具。</li>
-<li><strong>安全</strong>：独立模型做 Auto-review，15 秒无人回应即拦截；邮件、webhook 文本标为不可信；记忆只是信息，不是指令；新建 routine 需要用户确认。</li>
-<li><strong>上下文工程</strong>：prompt 前缀保持不变以命中缓存，cache miss 当 bug 处理；用户一开始打字就预热缓存；超过 10 万 token 的长回合结束约 10 分钟后、趁缓存还热时做摘要。记忆分四层：Profile（最多 100 条 / 4,000 字符，常驻 prompt）、Log（最相关的 30 条）、Notes（短期）、可搜索记忆。</li>
-<li><strong>方向</strong>：每个出错的 bot 都变成 eval；内环每天修 harness，外环每几个月训下一代模型；「Delete the product」，尽量少造脚手架。</li>
-</ul>
-<h3 id="13">1.3 官方文档补充</h3>
-<ul>
-<li>每个 Bot 是有名字、职责、独立对话和记忆的「队友」。账号下所有 Bot <strong>共享同一台云电脑</strong>（文件、浏览器登录、CLI 凭证都共享），每个 Bot 有自己的屏幕；关掉 app 或电脑都不会停止后台任务和 routine。<a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/overview">overview</a> · <a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/computer-and-apps">computer-and-apps</a></li>
-<li>Routine：按定时或事件（如 Slack、GitHub）触发；每个 Bot 最多 50 个 routine，间隔至少 5 分钟，每个 routine 保留最近 20 条运行记录；长时间没人回应会暂停。Skill 可以通过「Teach」录制最长 10 分钟的屏幕操作生成。<a target="_blank" rel="noopener" href="https://docs.x.ai/grok-bot/skills-routines-and-automations">skills &amp; routines</a></li>
-<li>电脑可以 Update（保留文件）或 Reset（从上次快照重建）。</li>
-</ul>
-<h2 id="2-openai-dots2026-09-29-devday">2. OpenAI dots（2026-09-29 DevDay 发布）</h2>
-<ul>
-<li>【官方】基于 GPT-6 Astra，有自己的云电脑，会从反馈中学习，可以 24/7 推进目标，通过插件连接 4,000+ 应用。首批面向 Pro 和 Business Premium，Enterprise 为 beta。<a target="_blank" rel="noopener" href="https://openai.com/index/introducing-dots/">OpenAI</a></li>
-<li>【第三方】空闲时做「proactive research」，只能用只读工具。安全分四层：只读模式、Custom Rules（四档：直接做 / 预先批准才做 / 先问 / 交给你）、Auto-review（Axios 称内部代号 Guardian）、内置硬停（改密码、账户间转账必须由人完成最后一步）。渠道包括 ChatGPT、Slack、Teams，iMessage/RCS 开放了候补名单。<a target="_blank" rel="noopener" href="https://endue.ai/blog/openai-dots-how-it-works/">endue</a> · <a target="_blank" rel="noopener" href="https://the-decoder.com/openai-launches-always-on-dots-agents-to-rival-metas-muse/">The Decoder</a> · <a target="_blank" rel="noopener" href="https://www.wired.com/story/openai-dots-always-on-ai-agents-that-proactively-help/">WIRED</a></li>
-<li>【官方】支持 MCP Events webhook 唤醒（Work 对话与 dots）。<a target="_blank" rel="noopener" href="https://developers.openai.com/plugins/build/mcp-events">OpenAI 文档</a></li>
-</ul>
-<h2 id="3-meta-muse2026-09-08">3. Meta Muse（2026-09-08 发布）</h2>
-<p>来源：<a target="_blank" rel="noopener" href="https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse">Meta AI Research：How We Built Safety Into Muse</a>【官方】</p>
-<ul>
-<li>每个用户一台专属云 VM，作为数据的 system of record；客户端直连 VM。</li>
-<li>VM 内分两个安全域：agent harness（代号 Hatch）跑在 systemd-nspawn 容器里，容器内 root 映射为非特权用户，限制系统调用和内核能力。容器外是安全服务：hatch-safety 分类器、privsep 连接器 worker、hatch-authd 凭证存储、Sentinel，以及独立的 Postgres。</li>
-<li>Sentinel 是连接器动作和所有出网流量的唯一授权方，在网络边界把替代 token 换成真凭证；用 eBPF 做「污点出网」：读过用户数据的进程不能再走自动放行。</li>
-<li>审批是严格的 capability，有一次性、会话级、任务级、限时、永久几档；审批弹窗直接走客户端，不经过和 Muse 的对话。</li>
-<li>浏览器子 agent 只看无障碍树，不能执行 JS；支付使用单次虚拟卡（Stripe Link）；漏洞赏金最高 30 万美元。</li>
-</ul>
-<h2 id="4-raftbotiverse-slock">4. Raft（Botiverse，原名 Slock）</h2>
-<ul>
-<li><strong>身份</strong>：Botiverse, Inc. 的产品，创始人 RC（stdrc）此前在 Moonshot 做 Kimi CLI。2026-06-12 由 Slock 更名为 Raft，2026-07-15 发布 Raft 1.0。【第三方转载 X/LinkedIn】<a target="_blank" rel="noopener" href="https://topicdigg.com/x/istdrc/2065446426432483446">更名帖</a> · <a target="_blank" rel="noopener" href="https://www.linkedin.com/posts/stdrc_last-year-i-built-kimi-cli-at-moonshot-today-activity-7483205772655390720-t_FW">Raft 1.0</a></li>
-<li><strong>产品机制</strong>【官方】：人和 agent 共用的工作区，包括频道、线程、DM、任务和 @。每个 agent 有持久身份、记忆和专长，记忆保存在用户本机；agent 自己认领任务、互相交接、设提醒、互相 review。可以接入外部 agent（Claude Code、Codex、Hermes Agent 等），使用用户自己的订阅和 key。「Computer」是用户机器上的轻量本地进程。<a target="_blank" rel="noopener" href="https://raft.build">raft.build</a></li>
-<li><strong>源码开放</strong>【官方】：2026-09-24 宣布 <a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-source">botiverse/raft-source</a> 源码可见，许可证 FSL-1.1-ALv2（禁止竞争性使用，每个版本两年后转为 Apache-2.0）。仓库是 release mirror，每个版本一个快照提交，不接受 PR，主张用「Prompt Request」代替 PR。截至 10/11 约 567 star、106 fork。<a target="_blank" rel="noopener" href="https://raft.build/resources/blog/raft-build-is-now-source-available/">博客</a></li>
-<li><strong>架构</strong>（raft-source README）：<code>server</code>（API、Socket.IO 实时、持久化）、<code>web</code>、<code>cli</code>（人和 agent 共用）、<code>daemon</code>（在机器上运行 agent 并代理凭证，凭证经本地绑定 origin 的代理和每次启动生成的 token 下发，agent 不直接持有）、<code>computer</code>、<code>raft-sdk</code>；本地开发栈是 Postgres + Redis + 对象存储。</li>
-<li><strong>外部 agent 唤醒</strong>：<a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-external-agents">raft-external-agents</a> 提供 Claude Code channel 插件（<code>claude --channels plugin:raft-channel@raft</code>）。bridge 只 <code>POST /wake</code> 元数据，消息正文由模型用 CLI 自己拉取；有去抖合并，监听 loopback，每个会话一个 token。</li>
-<li><strong>其他公开仓库</strong>（Botiverse org，star 数截至 10/11）：</li>
-</ul>
-<div class="tw"><table>
-<thead>
-<tr>
-<th>仓库</th>
-<th>说明</th>
-<th>许可证</th>
-<th>Star</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/agent-vault">agent-vault</a></td>
-<td>读文件时把 secret 换成占位符，写入时还原</td>
-<td>Apache-2.0</td>
-<td>439</td>
-</tr>
-<tr>
-<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/oar">oar</a></td>
-<td>Open Agent Runtime，统一 Claude Code、Codex、Cursor、Grok Build 等 harness 的编程接口；2026-08 建</td>
-<td>Apache-2.0</td>
-<td>179</td>
-</tr>
-<tr>
-<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/hands">hands</a></td>
-<td>agent-native 的客户端应用发布平台</td>
-<td>MIT</td>
-<td>56</td>
-</tr>
-<tr>
-<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/antiproton">antiproton</a></td>
-<td>基于 Durable Objects 的多租户 agent 运行时，空闲零成本，凭证不进上下文</td>
-<td>Apache-2.0</td>
-<td>28</td>
-</tr>
-<tr>
-<td><a target="_blank" rel="noopener" href="https://github.com/botiverse/musik">musik</a></td>
-<td>Raft app 参考实现（Login with Raft、Agent Manifest）</td>
-<td>MIT</td>
-<td>21</td>
-</tr>
-</tbody>
-</table></div>
-<ul>
-<li><strong>生态</strong>：<a target="_blank" rel="noopener" href="https://github.com/jackwener/OpenTeamFormat">OpenTeamFormat</a>（Apache-2.0，第三方开发者 jackwener）定义 Raft/Slock 团队模板的导入导出格式；<a target="_blank" rel="noopener" href="https://github.com/zolplay-labs/eve-raft">eve-raft</a> 是 Eve agent 的 Raft channel。</li>
-</ul>
-<h2 id="5-deepseek-bot2026-10-07">5. DeepSeek Bot（2026-10-07）</h2>
-<ul>
-<li><strong>身份</strong>：<strong>非 DeepSeek 官方产品</strong>。作者是独立开发者 FeiZ（GitHub <a target="_blank" rel="noopener" href="https://github.com/FeiZhuLulu/DeepSeek-Bot">FeiZhuLulu/DeepSeek-Bot</a>），Apache-2.0，截至 10/11 约 617 star，v0.1 preview。宿主是 DeepSeek 官方的开源 agent 运行时 <a target="_blank" rel="noopener" href="https://github.com/deepseek-ai/deepseek-harness">DeepSeek Harness</a>（MIT，约 24.7 万 star）；DSH v0.2 于 2026-09-29 推出 macOS/Windows 桌面版。</li>
-<li><strong>机制</strong>（README）：每个 bot 就是一个 DSH session，使用 DSH 的工具和模型。主 bot「Chief」权限最高，负责创建其他 bot 和群聊。群聊里由管理员 bot 默认应答并调度其他 bot，也可以直接 @ 某个 bot。bot 有 Markdown 记忆，可按 bot 和模型统计 token 用量。数据全在本地 <code>~/.dsh/bot</code> 和 <code>sessions/</code>。</li>
-<li><strong>致谢中列出的借鉴对象</strong>：AgentMemoryRepo（记忆格式）、Codex（checkpoint）、Hermes Bot Mode（每个群成员一个 session、交接）、OpenMausBot（群聊轮次）。第三方报道称它也受 Grok Bot 启发。<a target="_blank" rel="noopener" href="https://tau-home.com/en/post/deepseek-bot-multi-agent-plugin-for-deepseek-harness/">TAU-HOME</a></li>
-<li><strong>另有同名站点 deepseekbot.app</strong>（npm <code>deepseekbot</code> v1.1.0）：可接飞书、Slack、Discord、个人微信（仅限扫码主人的私聊），可选电脑/浏览器组件（尚未公开发布），首个动作默认先询问。<a target="_blank" rel="noopener" href="https://deepseekbot.app/en/docs/capabilities/">文档</a></li>
-</ul>
-<h2 id="6">6. 开源与本地路线</h2>
-<ul>
-<li><strong>Hermes Agent Bot Mode</strong>（Nous Research，MIT）【官方】：每个 Bot 就是一个 profile（<code>~/.hermes/profiles/&lt;bot&gt;/</code>，包含独立配置、记忆、skills、凭证和 SOUL.md），有一个永久的「Bot Chat」，<code>/new</code> 会改为压缩而不是新开会话。Routine 就是 cron。群聊 2–6 个 Bot，每条消息最多 3 轮；bot 之间用 <code>message_agent</code> 发消息；用 <code>[SILENT]</code> 表示沉默；同一 gateway 上的群聊有 durable driver，桌面端关掉后群聊仍在运行；最多保持 3 个热后端，空闲 10 分钟回收。<a target="_blank" rel="noopener" href="https://hermes-agent.nousresearch.com/docs/user-guide/bot-mode">文档</a></li>
-<li><strong>OpenClaw</strong>（MIT）：默认每 30 分钟一次 heartbeat，在主对话里跑一轮完整 agent turn；可配置 activeHours 和 isolatedSession。按第三方测算，isolatedSession 能把单次 heartbeat 从约 10 万 token 降到 2,000–5,000 token。<a target="_blank" rel="noopener" href="https://docs.openclaw.ai/gateway/heartbeat">OpenClaw 文档</a> · <a target="_blank" rel="noopener" href="https://nventory.io/blog/hermes-agent-vs-openclaw-ecommerce">nventory</a></li>
-</ul>
-<h2 id="7">7. 其他相关产品与协议</h2>
-<ul>
-<li><strong>Instinct</strong>【第三方】：邀请制，没有传统 app，通过 iMessage、WhatsApp、短信、邮件、电话交互；有持久云电脑，可能主动给用户发消息或打电话。<a target="_blank" rel="noopener" href="https://www.theverge.com/tech/1008254/instinct-agent-ai-hands-on-muse-dots">The Verge</a></li>
-<li><strong>Personal Agent Protocol</strong>【官方】：Sierra 与 Meta 于 2026-10-06 发布，合作方包括 Genesys、Instinct、Rocket、Shopify、Stripe、Walmart。流程是在网站上发现能力 → 以访客或登录身份开启会话（基于 OAuth，跨渠道连续）→ 通过网站、API（MCP/OpenAPI）或企业自己的 agent 完成任务。<a target="_blank" rel="noopener" href="https://sierra.ai/blog/introducing-personal-agent-protocol">Sierra</a> · <a target="_blank" rel="noopener" href="https://personalagentprotocol.org/docs/spec">规范草案</a></li>
-<li><strong>Claude Code</strong>【官方】：Channels（私有的 <code>claude/channel</code> 通知，把事件推入<strong>正在运行</strong>的会话）；Routines（定时、GitHub、HTTP 触发，每次开新会话）。<a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/channels">Channels</a> · <a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/routines">Routines</a></li>
-<li><strong>MCP Events</strong>：SEP-3415 于 2026-10-06 提交，仍是草案；ChatGPT 是目前唯一的官方实现。<a target="_blank" rel="noopener" href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3415">PR</a></li>
-</ul>
-<h2 id="_3">待确认</h2>
-<ul>
-<li>dots 的记忆与 VM 生命周期细节，OpenAI 尚未官方披露。</li>
-<li>Raft 更名和 1.0 发布日期来自 X/LinkedIn 帖子的转载页。</li>
-<li>Manus、Cue 未纳入本文。</li>
-</ul></body></html>
+</table>
+<p>其中 <code>block/goose</code> 现指向 <code>aaif-goose/goose</code>，<code>All-Hands-AI/OpenHands</code> 指向 <code>OpenHands/OpenHands</code>，<code>e2b-dev/infra</code> 指向 <code>e2b-dev/runtime</code>；保留原本地目录名以便复查。Raft 原 Slock 的改名记录见 <code>manual/agent-knowledge/rename-slock-to-raft.md</code>。Raft README:21–39 明示 FSL-1.1-ALv2、两年后转 Apache 2.0，且这里是私有开发仓库的发布镜像，不能用公开 commit 数衡量迭代量；它是源码可见，不应统称 OSI 开源。Claude Code 仓库的公开插件、mods 和示例不等于核心 CLI 全部开源。</p>
+<p>两处历史源码单独固定：Letta 旧 API server 为 <a target="_blank" rel="noopener" href="https://github.com/letta-ai/letta/commit/56ba9c25552605eec89de8ed3dc6394b625c1993"><code>56ba9c2555</code></a>，2026-08-14 UTC，保存在 <code>sources/excerpts/letta-ai__letta-archive/</code>；Daytona 为 <a target="_blank" rel="noopener" href="https://github.com/daytonaio/daytona/commit/01c502bb1f1ff8f2885d0cd490e043736083dca8"><code>01c502bb1f</code></a>，2026-06-23 UTC，保存在 <code>sources/excerpts/daytonaio__daytona-code/</code>。当前实现与历史机制在正文明确区分。</p>
+<p>来源列表（未列独立发布日期的动态文档统一访问于 2026-10-11；厂商材料不能视为独立验证）：</p>
+<ol>
+<li><strong>讲座原始输入</strong>：Lee Robinson / Stanford CS146S 幻灯片要点，2026-10-08；<a target="_blank" rel="noopener" href="https://x.com/leerob/status/2108650243365736855">发布帖</a>，2026-10-09。Grok 部分仅据此，未假称读过其闭源实现。</li>
+<li><strong>源码</strong>：上述仓库固定提交；代码引用索引、机器可读索引、逐行摘录。短路径与后续裸行号沿用同段已指明文件。仓库 README 与设计注释属于维护者陈述，具体控制流才按源码观察使用。</li>
+<li><strong>Anthropic 官方</strong>：<a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/channels">Channels</a>、<a target="_blank" rel="noopener" href="https://code.claude.com/docs/en/routines">Routines</a>、<a target="_blank" rel="noopener" href="https://support.claude.com/en/articles/13854387-schedule-recurring-tasks-in-claude-cowork">Cowork scheduled tasks</a>。动态产品文档，保留抓取快照，未据旧版“电脑必须开机”概括全部当前任务。</li>
+<li><strong>OpenAI 官方</strong>：<a target="_blank" rel="noopener" href="https://openai.com/index/introducing-dots/">Introducing dots</a>，2026-09-29；<a target="_blank" rel="noopener" href="https://help.openai.com/en/articles/20001529-dots-privacy-security-and-safety-faqs">dots 安全 FAQ</a>；<a target="_blank" rel="noopener" href="https://openai.com/index/introducing-chatgpt-agent/">Introducing ChatGPT agent</a>，2025-07-17；<a target="_blank" rel="noopener" href="https://alignment.openai.com/auto-review/">Auto-review</a>；<a target="_blank" rel="noopener" href="https://deploymentsafety.openai.com/gpt-6-astra/sec:appendix-sol-luna">GPT-6 Astra system card / dots 附录</a>，动态文档。</li>
+<li><strong>Meta 官方</strong>：<a target="_blank" rel="noopener" href="https://introducing.muse.ai/">Muse 产品设计</a>，2026-09；<a target="_blank" rel="noopener" href="https://research.meta.ai/blog/security-and-safety-for-ai-agents-our-approach-with-muse">Muse security and safety</a>，动态工程说明。没有把营销页面的长期愿景当成公开可复现架构。</li>
+<li><strong>Manus 官方</strong>：<a target="_blank" rel="noopener" href="https://manus.im/blog/Context-Engineering-for-AI-Agents-Lessons-from-Building-Manus">Context Engineering for AI Agents</a>，2025-07-18；<a target="_blank" rel="noopener" href="https://www.manus.im/blog/introducing-manus-2-0">Introducing Manus 2.0</a>，2026-09-28；<a target="_blank" rel="noopener" href="https://open.manus.ai/docs/v2/agents-overview">Agents API overview</a>，动态文档。2025 harness 经验与 2026 Cue 产品能力分开使用。</li>
+<li><strong>Sierra 官方</strong>：<a target="_blank" rel="noopener" href="https://sierra.ai/blog/introducing-personal-agent-protocol">Introducing Personal Agent Protocol</a>，2026-10-06；仅据公告，不虚构尚未拿到的规范字段、SDK 或互操作测试。</li>
+<li><strong>独立报道</strong>：<a target="_blank" rel="noopener" href="https://apnews.com/article/3a4572eb4cf4e95d8a0dfdad6e6ca065">AP：Muse 发布</a>，2026-09-08；<a target="_blank" rel="noopener" href="https://www.axios.com/2026/09/29/openai-dots-ai-assistant-devday">Axios：dots 发布与演示</a>，2026-09-29。仅支持公开发布和现场现象。</li>
+</ol>
+<p>网页证据保存在 sources/web/，抓取清单标出抓取时间、SHA-256 和失败项；部分站点原始 HTML 返回 403，使用保留的 Web 工具提取结果，不声称全部完成整页离线归档。本文是可复核的静态研究，未运行各仓库全量测试，也未独立测量闭源产品的成本、可靠性或安全拦截率。</p><footer>代码链接均固定到具体提交。</footer></main></body></html>
