@@ -1,4 +1,6 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Always-on Agent 机制调研</title><style>body{font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;max-width:860px;margin:0 auto;padding:16px;line-height:1.7;color:#222;font-size:16px}h1{font-size:1.5em}h2{border-bottom:1px solid #ddd;padding-bottom:4px;margin-top:2em}.tw{overflow-x:auto}table{border-collapse:collapse;font-size:14px;min-width:600px}td,th{border:1px solid #ddd;padding:6px;vertical-align:top}th{background:#f5f5f5}code{background:#f3f3f3;padding:1px 4px;border-radius:3px;font-size:.9em;word-break:break-all}a{color:#0a58ca;word-break:break-all}.toc{background:#fafafa;border:1px solid #eee;padding:8px 16px;font-size:14px}</style></head><body><details class="toc" open><summary>目录</summary><div class="toc">
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Always-on Agent 机制调研</title><link rel="stylesheet" href="https://psylch.github.io/assets/report.css"><style>.toc>summary{font:11px/1.7 var(--mono);letter-spacing:.24em;text-transform:uppercase;color:var(--mute);padding:4px 28px 4px 0}.toc>summary::after{top:0}</style></head><body class="report"><main>
+<a class="back" href="./">← 主报告</a>
+<details class="toc" open><summary>目录</summary><div>
 <ul>
 <li><a href="#_1">一页摘要</a></li>
 <li><a href="#_2">对比表</a></li>
@@ -31,7 +33,7 @@
 <li><strong>标准层</strong>：唤醒方面 MCP Events 仍是草案（SEP-3415），ChatGPT（Work/dots）是目前唯一官方实现；agent 对接商家方面，Sierra + Meta 在推 Personal Agent Protocol（基于 OAuth）。</li>
 </ul>
 <h2 id="_2">对比表</h2>
-<div class="tw"><table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>维度</th>
@@ -111,7 +113,7 @@
 </table></div>
 <h2 id="1-grok-bot">1. Grok Bot（主案例）</h2>
 <h3 id="11-lee-robinson">1.1 Lee Robinson 是谁</h3>
-<div class="tw"><table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>时间</th>
@@ -191,7 +193,7 @@
 <li><strong>外部 agent 唤醒</strong>：<a target="_blank" rel="noopener" href="https://github.com/botiverse/raft-external-agents">raft-external-agents</a> 提供 Claude Code channel 插件（<code>claude --channels plugin:raft-channel@raft</code>）。bridge 只 <code>POST /wake</code> 元数据，消息正文由模型用 CLI 自己拉取；有去抖合并，监听 loopback，每个会话一个 token。</li>
 <li><strong>其他公开仓库</strong>（Botiverse org，star 数截至 10/11）：</li>
 </ul>
-<div class="tw"><table>
+<div class="table-wrap"><table>
 <thead>
 <tr>
 <th>仓库</th>
@@ -260,4 +262,5 @@
 <li>dots 的记忆与 VM 生命周期细节，OpenAI 尚未官方披露。</li>
 <li>Raft 更名和 1.0 发布日期来自 X/LinkedIn 帖子的转载页。</li>
 <li>Manus、Cue 未纳入本文。</li>
-</ul></body></html>
+</ul></main>
+<script src="https://psylch.github.io/assets/report.js"></script></body></html>

@@ -1,4 +1,6 @@
-<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raft：快速回复、打断与 harness/infra</title><style>body{font-family:-apple-system,"PingFang SC",sans-serif;max-width:860px;margin:auto;padding:16px;line-height:1.75;color:#222}a{color:#0a58ca;word-break:break-all}pre{overflow-x:auto;background:#f6f8fa;padding:10px;font-size:13px}code{background:#f3f3f3;padding:0 3px;font-size:.9em}nav.toc{background:#fafafa;border:1px solid #eee;padding:8px 14px;font-size:14px}h2{border-bottom:1px solid #eee;margin-top:2em}</style></head><body><p><a href="index.html">← 返回主报告</a></p><nav class="toc"><b>目录</b><div class="toc">
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raft：快速回复、打断与 harness/infra</title><link rel="stylesheet" href="https://psylch.github.io/assets/report.css"></head><body class="report"><main>
+<a class="back" href="index.html">← 返回主报告</a>
+<nav class="toc"><b>目录</b><div>
 <ul>
 <li><a href="#a1raft">A1．“先回一句再干活”：Raft 把说话做成动作，把及时性留给模型</a></li>
 <li><a href="#a2-interrupt">A2．新消息、工具执行与打断：至少四种状态不能混成一个 interrupt</a><ul>
@@ -29,7 +31,7 @@
 </ul>
 </div>
 </nav><h1 id="raft">Raft：快速回复、纠偏与长期协作的代码级研究</h1>
-<p>Raft 让有身份、记忆和目录的 agent 成为队友，用协作状态与 daemon 管运行。“先回一句”靠提示词和显式发送，未见快模型或确认检查器。新消息经 inbox 与 steer 注入，不自动取消工具；Stop 有 abort 路径，但结果补齐、副作用和 helper 存活无统一保证。租约与 fencing 已实现，通用 durable-task registry 却为空且默认关闭。增量是任务所有权、发送前新鲜度检查、按 launch 绑定的凭据代理与“不确定则不重跑”的故障语义。OAR、antiproton、K 是独立组件，接入须核实；投资看完成与恢复，复用须区分 FSL 和组件许可。</p>
+<p class="lead">Raft 让有身份、记忆和目录的 agent 成为队友，用协作状态与 daemon 管运行。“先回一句”靠提示词和显式发送，未见快模型或确认检查器。新消息经 inbox 与 steer 注入，不自动取消工具；Stop 有 abort 路径，但结果补齐、副作用和 helper 存活无统一保证。租约与 fencing 已实现，通用 durable-task registry 却为空且默认关闭。增量是任务所有权、发送前新鲜度检查、按 launch 绑定的凭据代理与“不确定则不重跑”的故障语义。OAR、antiproton、K 是独立组件，接入须核实；投资看完成与恢复，复用须区分 FSL 和组件许可。</p>
 <p>研究截点：2026-10-11；读者：Charles，真格基金 AI 投资实习生、前 agent 产品经理。正文的具体源码结论固定到附录 SHA，摘要的证据展开在对应章节。<strong>【代码】</strong>指公开快照中可定位的控制流；<strong>【文档】</strong>包括 README、设计说明和写入模型的提示词，证明产品意图，不直接证明模型遵守；<strong>【课程】</strong>只指当前目录提供的 Lee Robinson 课程要点；<strong>【判断】</strong>是由上述证据作出的推论。测试段落仅审阅测试实现，未声称本机执行通过。前版报告用于定位线索，不替代本次代码证据。全文不开展其他 agent 项目的比较。</p>
 <h2 id="a1raft">A1．“先回一句再干活”：Raft 把说话做成动作，把及时性留给模型</h2>
 <p><strong>【代码＋提示词】Raft 的机制是“显式发送通道＋提示词排序”，而不是首 token 自动展示。</strong> <code>buildPrompt()</code> 的 critical rules 指定：只有 <code>raft</code> 命令产生面向协作空间的输出；启动步骤第 1 条要求，若当前输入有具体消息，先判断是否需要确认、阻塞问题或所有权信号，需要时先 <code>raft message send</code>，再深入收集上下文；第 2 条才读 <code>MEMORY.md</code>，第 4 条再强调必要时发回复。这是很具体的延迟策略：不要为了说“我来处理”先读完历史、记忆、仓库。规则又是条件式的，未要求每个事件都机械发“收到”。<a href="https://github.com/botiverse/raft-source/blob/26f77ef97c40d3d91aa2c5e42b0fd66b8bf39fe6/packages/daemon/src/drivers/systemPrompt.ts#L116-L138">raft-source/packages/daemon/src/drivers/systemPrompt.ts:116–138</a></p>
@@ -173,4 +175,5 @@ RETURNING id;
 <p>第二，Raft核心的fast-ack硬性checker、独立快模型路由、任意中断位置合成tool_result、所有native helper持久存活/恢复、后台shell全局注册收割、任意外部副作用exactly-once和统一补偿事务，均未找到证据。未找到不等于确认不存在；结论仅约束公开快照。</p>
 <p>第三，通用durable-task registry的业务接入与生产开关、constructed-wake rollout、hosted antiproton实际部署及OAR新HEAD特性进入Raft pinned版本，未取得线上配置证据。本文明确区分提供能力的库与产品实际调用。</p>
 <p>第四，外围UI、移动端、跨组织jointchannel的全部实现、所有integration与artifactshare安全、K真实升级、antiproton账单/eviction实验和长期memory质量未作全覆盖审计。fork仅列入公开资产清单，没有分析它们所属项目的快回复/打断机制。</p>
-<p>第五，未执行仓库完整测试套件、数据库故障回归或真机kill/断电。正文按真实DB测试入口、mock SDK/child、注入filesystem seam、case generator区分证据强度；所有测试结论是测试代码声明的可执行断言，未冒称本次通过。方法与链接的可复核性不等于安全审计或生产可靠性认证。</p></body></html>
+<p>第五，未执行仓库完整测试套件、数据库故障回归或真机kill/断电。正文按真实DB测试入口、mock SDK/child、注入filesystem seam、case generator区分证据强度；所有测试结论是测试代码声明的可执行断言，未冒称本次通过。方法与链接的可复核性不等于安全审计或生产可靠性认证。</p></main>
+<script src="https://psylch.github.io/assets/report.js"></script></body></html>

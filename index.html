@@ -1,14 +1,8 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Always-on agent 的十一层机制</title><style>body{margin:0;background:#fafaf8;color:#1f2328;font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans CJK SC","Microsoft YaHei",sans-serif;line-height:1.85;font-size:16.5px}
-main{max-width:780px;margin:0 auto;padding:24px 20px 80px}h1{font-size:1.6em;line-height:1.4}h2{margin-top:2.2em;padding-top:.6em;border-top:1px solid #e5e5e0;font-size:1.3em}
-p{text-align:justify;margin:1em 0}a{color:#0b62c4;text-decoration:none;word-break:break-all}a:hover{text-decoration:underline}
-code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:.86em;background:#efefeb;padding:.1em .35em;border-radius:4px;word-break:break-all}
-pre{background:#1f2328;color:#e6edf3;padding:14px 16px;border-radius:8px;overflow-x:auto;line-height:1.55}pre code{background:none;color:inherit;padding:0;word-break:normal}
-table{border-collapse:collapse;width:100%;font-size:.88em;display:block;overflow-x:auto}td,th{border:1px solid #ddd;padding:6px 8px}th{background:#f0f0ec}
-strong{color:#000}nav.toc{background:#fff;border:1px solid #e5e5e0;border-radius:8px;padding:10px 18px;margin:20px 0;font-size:.95em}nav.toc ul{padding-left:1.2em;margin:.3em 0}
-.meta{color:#666;font-size:.9em}footer{color:#888;font-size:.85em;margin-top:3em}</style></head><body><main>
+<title>Always-on agent 的十一层机制</title><link rel="stylesheet" href="https://psylch.github.io/assets/report.css"></head><body class="report"><main>
+<a class="back" href="https://psylch.github.io/">← psylch</a>
 <p class="meta">2026-10-11 · 按 Lee Robinson（Stanford CS146S）框架逐机制拆解 · <a href="quickreply-raft.html">专题：Raft 快速回复、打断与 harness/infra</a> · <a href="v1.html">旧版（v1）</a></p>
-<nav class="toc"><strong>目录</strong><div class="toc">
+<nav class="toc"><b>目录</b><div>
 <ul>
 <li><a href="#s59220841">1. 唤醒与触发：把“来了什么”与“现在做什么”分开</a></li>
 <li><a href="#s35448457">2. 运行时与云电脑：agent 进程和工具电脑有两个生命周期</a></li>
@@ -25,7 +19,7 @@ strong{color:#000}nav.toc{background:#fff;border:1px solid #e5e5e0;border-radius
 </ul>
 </div>
 </nav><h1 id="s84163175">Always-on agent 的十一层机制：从 Grok Bot 到可核验的实现</h1>
-<p>研究截点：2026-10-11。核心判断：always-on 正在收敛为“事件驱动、持久状态、外置工具环境、可压缩上下文与按需 skills”，但十一层机制远未同构：触发上 Grok 按人/后台分流，OpenClaw、Hermes 提供不同 steering/排队语义；运行时上 Grok 分离 server loop 与 Firecracker 电脑，Muse 围绕个人 VM 保存权威状态，本地 harness 则把在线性留给部署者；恢复上 Temporal replay、Raft 事务任务与 OpenHands 事件日志各解决不同故障；说话上 Grok 专用 send，Hermes/OpenClaw 可交付普通回复并抑制沉默；工具上 Codex deferred schema、Goose 动态扩展、Manus decoding mask 分叉；电脑使用上结构索引、像素与人接管互补；多 agent 已有隔离会话，但取消和共享资源所有权仍难；上下文正收敛到稳定前缀与可重读文件，摘要时机未统一；记忆从小档案、Letta 分层 MemFS 到 Codex 后台 consolidation；安全从 callback/审核模型发展到独立出口授权；评测已有故障回归，和模型训练闭环之间仍缺公开证据。对产品与投资，稀缺能力是可验证的恢复、授权、纠偏与长期完成率，而不是多几个入口、VM 或 helper。下文逐章给出这些判断的依据。</p>
+<p class="lead">研究截点：2026-10-11。核心判断：always-on 正在收敛为“事件驱动、持久状态、外置工具环境、可压缩上下文与按需 skills”，但十一层机制远未同构：触发上 Grok 按人/后台分流，OpenClaw、Hermes 提供不同 steering/排队语义；运行时上 Grok 分离 server loop 与 Firecracker 电脑，Muse 围绕个人 VM 保存权威状态，本地 harness 则把在线性留给部署者；恢复上 Temporal replay、Raft 事务任务与 OpenHands 事件日志各解决不同故障；说话上 Grok 专用 send，Hermes/OpenClaw 可交付普通回复并抑制沉默；工具上 Codex deferred schema、Goose 动态扩展、Manus decoding mask 分叉；电脑使用上结构索引、像素与人接管互补；多 agent 已有隔离会话，但取消和共享资源所有权仍难；上下文正收敛到稳定前缀与可重读文件，摘要时机未统一；记忆从小档案、Letta 分层 MemFS 到 Codex 后台 consolidation；安全从 callback/审核模型发展到独立出口授权；评测已有故障回归，和模型训练闭环之间仍缺公开证据。对产品与投资，稀缺能力是可验证的恢复、授权、纠偏与长期完成率，而不是多几个入口、VM 或 helper。下文逐章给出这些判断的依据。</p>
 <p>证据口径：<strong>讲座自述</strong>来自用户提供的 lecture-slides.md，讲于 2026-10-08、记录标注发布于 10-09；未重新核验视频逐字稿。<strong>源码观察</strong>是对固定 Git 提交的独立静态审阅，不代表运行验证或第三方安全审计；README、工程博客、产品文档始终视为<strong>厂商/维护者自述</strong>。文中“取舍”是研究判断。正文按有证据的机制比较，未公开的闭源实现不靠推断补齐；仓库 URL、星数和 HEAD 日期见文末；代码链接固定到本次提交，另有逐项引用索引。</p>
 <h2 id="s59220841">1. 唤醒与触发：把“来了什么”与“现在做什么”分开</h2>
 <p>【讲座】Grok Bot 的消息、routine/webhook、Slack、电话、helper 完成事件先进入 router：去重、确定 conversation，再放入每会话串行队列。唤醒记录来源；1:1 用户消息可以插队、中断正在进行的 turn，群聊、routine 和 helper 结果则批处理。这意味着“用户纠偏”是调度优先级，而不只是追加一条 prompt。（讲座：<code>lecture-slides.md:61–65、100–103</code>。）</p>
@@ -258,4 +252,4 @@ WHERE id IN (
 <li><strong>Sierra 官方</strong>：<a target="_blank" rel="noopener" href="https://sierra.ai/blog/introducing-personal-agent-protocol">Introducing Personal Agent Protocol</a>，2026-10-06；仅据公告，不虚构尚未拿到的规范字段、SDK 或互操作测试。</li>
 <li><strong>独立报道</strong>：<a target="_blank" rel="noopener" href="https://apnews.com/article/3a4572eb4cf4e95d8a0dfdad6e6ca065">AP：Muse 发布</a>，2026-09-08；<a target="_blank" rel="noopener" href="https://www.axios.com/2026/09/29/openai-dots-ai-assistant-devday">Axios：dots 发布与演示</a>，2026-09-29。仅支持公开发布和现场现象。</li>
 </ol>
-<p>网页证据保存在 sources/web/，抓取清单标出抓取时间、SHA-256 和失败项；部分站点原始 HTML 返回 403，使用保留的 Web 工具提取结果，不声称全部完成整页离线归档。本文是可复核的静态研究，未运行各仓库全量测试，也未独立测量闭源产品的成本、可靠性或安全拦截率。</p><footer>代码链接均固定到具体提交。</footer></main></body></html>
+<p>网页证据保存在 sources/web/，抓取清单标出抓取时间、SHA-256 和失败项；部分站点原始 HTML 返回 403，使用保留的 Web 工具提取结果，不声称全部完成整页离线归档。本文是可复核的静态研究，未运行各仓库全量测试，也未独立测量闭源产品的成本、可靠性或安全拦截率。</p><footer class="foot">代码链接均固定到具体提交。</footer></main><script src="https://psylch.github.io/assets/report.js"></script></body></html>
