@@ -1,5 +1,6 @@
 <!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Raft：快速回复、打断与 harness/infra</title><link rel="stylesheet" href="https://psylch.github.io/assets/report.css"></head><body class="report"><main>
 <a class="back" href="index.html">← 返回主报告</a>
+<h1 id="raft">Raft：快速回复、纠偏与长期协作的代码级研究</h1>
 <nav class="toc"><b>目录</b><div>
 <ul>
 <li><a href="#a1raft">A1．“先回一句再干活”：Raft 把说话做成动作，把及时性留给模型</a></li>
@@ -30,7 +31,7 @@
 </li>
 </ul>
 </div>
-</nav><h1 id="raft">Raft：快速回复、纠偏与长期协作的代码级研究</h1>
+</nav>
 <p class="lead">Raft 让有身份、记忆和目录的 agent 成为队友，用协作状态与 daemon 管运行。“先回一句”靠提示词和显式发送，未见快模型或确认检查器。新消息经 inbox 与 steer 注入，不自动取消工具；Stop 有 abort 路径，但结果补齐、副作用和 helper 存活无统一保证。租约与 fencing 已实现，通用 durable-task registry 却为空且默认关闭。增量是任务所有权、发送前新鲜度检查、按 launch 绑定的凭据代理与“不确定则不重跑”的故障语义。OAR、antiproton、K 是独立组件，接入须核实；投资看完成与恢复，复用须区分 FSL 和组件许可。</p>
 <p>研究截点：2026-10-11；读者：Charles，真格基金 AI 投资实习生、前 agent 产品经理。正文的具体源码结论固定到附录 SHA，摘要的证据展开在对应章节。<strong>【代码】</strong>指公开快照中可定位的控制流；<strong>【文档】</strong>包括 README、设计说明和写入模型的提示词，证明产品意图，不直接证明模型遵守；<strong>【课程】</strong>只指当前目录提供的 Lee Robinson 课程要点；<strong>【判断】</strong>是由上述证据作出的推论。测试段落仅审阅测试实现，未声称本机执行通过。前版报告用于定位线索，不替代本次代码证据。全文不开展其他 agent 项目的比较。</p>
 <h2 id="a1raft">A1．“先回一句再干活”：Raft 把说话做成动作，把及时性留给模型</h2>

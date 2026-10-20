@@ -2,6 +2,7 @@
 <title>Always-on agent 的十一层机制</title><link rel="stylesheet" href="https://psylch.github.io/assets/report.css"></head><body class="report"><main>
 <a class="back" href="https://psylch.github.io/">← psylch</a>
 <p class="meta">2026-10-11 · 按 Lee Robinson（Stanford CS146S）框架逐机制拆解 · <a href="quickreply-raft.html">专题：Raft 快速回复、打断与 harness/infra</a> · <a href="v1.html">旧版（v1）</a></p>
+<h1 id="s84163175">Always-on agent 的十一层机制：从 Grok Bot 到可核验的实现</h1>
 <nav class="toc"><b>目录</b><div>
 <ul>
 <li><a href="#s59220841">1. 唤醒与触发：把“来了什么”与“现在做什么”分开</a></li>
@@ -18,7 +19,7 @@
 <li><a href="#s9262594">附录：仓库身份、版本与来源</a></li>
 </ul>
 </div>
-</nav><h1 id="s84163175">Always-on agent 的十一层机制：从 Grok Bot 到可核验的实现</h1>
+</nav>
 <p class="lead">研究截点：2026-10-11。核心判断：always-on 正在收敛为“事件驱动、持久状态、外置工具环境、可压缩上下文与按需 skills”，但十一层机制远未同构：触发上 Grok 按人/后台分流，OpenClaw、Hermes 提供不同 steering/排队语义；运行时上 Grok 分离 server loop 与 Firecracker 电脑，Muse 围绕个人 VM 保存权威状态，本地 harness 则把在线性留给部署者；恢复上 Temporal replay、Raft 事务任务与 OpenHands 事件日志各解决不同故障；说话上 Grok 专用 send，Hermes/OpenClaw 可交付普通回复并抑制沉默；工具上 Codex deferred schema、Goose 动态扩展、Manus decoding mask 分叉；电脑使用上结构索引、像素与人接管互补；多 agent 已有隔离会话，但取消和共享资源所有权仍难；上下文正收敛到稳定前缀与可重读文件，摘要时机未统一；记忆从小档案、Letta 分层 MemFS 到 Codex 后台 consolidation；安全从 callback/审核模型发展到独立出口授权；评测已有故障回归，和模型训练闭环之间仍缺公开证据。对产品与投资，稀缺能力是可验证的恢复、授权、纠偏与长期完成率，而不是多几个入口、VM 或 helper。下文逐章给出这些判断的依据。</p>
 <p>证据口径：<strong>讲座自述</strong>来自用户提供的 lecture-slides.md，讲于 2026-10-08、记录标注发布于 10-09；未重新核验视频逐字稿。<strong>源码观察</strong>是对固定 Git 提交的独立静态审阅，不代表运行验证或第三方安全审计；README、工程博客、产品文档始终视为<strong>厂商/维护者自述</strong>。文中“取舍”是研究判断。正文按有证据的机制比较，未公开的闭源实现不靠推断补齐；仓库 URL、星数和 HEAD 日期见文末；代码链接固定到本次提交，另有逐项引用索引。</p>
 <h2 id="s59220841">1. 唤醒与触发：把“来了什么”与“现在做什么”分开</h2>
